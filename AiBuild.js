@@ -361,11 +361,17 @@ async function upgradeFile(filePath, chalk, model) {
       // Improved code here
       \`\`\`
 
+      If Additional File Like Js, css, jsx, etc send like this 
+       \`\`\`file:${filePath}
+      // the file content
+      \`\`\`
+
       After the code block, provide a brief explanation of your changes and enhancements.
     `;
 
     const result = await model.generateContent(prompt);
     const improvedCode = result.response.text();
+    console.log(chalk.red(improvedCode))
 
     await processAIResponse(improvedCode, chalk);
 
