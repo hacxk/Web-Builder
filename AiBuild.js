@@ -26,11 +26,13 @@ const {
   advancedRealTimeCodeSession
 } = require('./advanced_self_upgrading_assistant');
 
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const genAI = new GoogleGenerativeAI(process.env.API_KEY);
 
 let currentProject = null;
 let chatHistory = [];
-
+let chalk;
 async function loadChalk() {
   return (await import('chalk')).default;
 }
@@ -801,80 +803,240 @@ async function runTests(testCommand, chalk) {
   }
 }
 
-async function upgradeFile(filePath, chalk, model) {
-  try {
-    const fileContent = await fs.readFile(filePath, 'utf-8');
-    const fileExtension = path.extname(filePath).slice(1);
-    console.log(chalk.yellow(`Sending ${filePath} content to AI for improvement...`));
+async function upgradeFile(filePath, chalk, model, fileType, upgradePlan) {
+  console.log(chalk.yellow(`Upgrading file: ${filePath}`));
+  const originalContent = await fs.readFile(filePath, 'utf-8');
+  
+  const upgradePrompt = `
+    Upgrade the following ${fileType} code according to the upgrade plan:
+    Upgrade Plan: ${JSON.stringify(upgradePlan, null, 2)}
 
-    const prompt = `
-Analyze and refactor the following ${fileExtension} code, providing an updated and improved implementation.
-Original ${fileExtension.toUpperCase()} Code:
-\`\`\`${fileExtension}
-${fileContent}
-\`\`\`
-Your task is to enhance this code to create a more efficient, maintainable, and feature-rich implementation. Please consider the following:
-1. Performance optimizations
-2. Code readability and organization
-3. Error handling and robustness
-4. Modern language features and best practices
-5. Potential new features or improvements
+    Original ${fileType.toUpperCase()} Code:
+    \`\`\`${fileType}
+    ${originalContent}
+    \`\`\`
 
-Provide the improved full code without any missing code within a code block using:
-\`\`\`file:${filePath}
-// Improved code here
-\`\`\`
-After the code block, provide a brief explanation of your changes and enhancements.
-`;
+    Provide the upgraded code within a code block and explain the changes made.
+  `;
 
-    const result = await model.generateContentStream(prompt);
-    let improvedCode = '';
-    for await (const chunk of result.stream) {
-      const chunkText = chunk.text();
-      process.stdout.write(chunkText);
-      improvedCode += chunkText;
+  let retries = 3;
+  while (retries > 0) {
+    try {
+      const result = await model.generateContent(upgradePrompt);
+      const aiResponse = result.response.text();
+
+      const codeBlockRegex = /```[\s\S]*?\n([\s\S]*?)```/;
+      const match = aiResponse.match(codeBlockRegex);
+      
+      if (match) {
+        const upgradedCode = match[1].trim();
+        await fs.writeFile(filePath, upgradedCode);
+        console.log(chalk.green(`File ${filePath} has been upgraded.`));
+
+        const explanation = aiResponse.split('```').pop().trim();
+        return {
+          file: filePath,
+          changes: diffSummary(originalContent, upgradedCode),
+          explanation: explanation
+        };
+      } else {
+        throw new Error('Failed to extract upgraded code from AI response');
+      }
+    } catch (error) {
+      console.error(chalk.yellow(`Error upgrading file ${filePath}, retrying... (${retries} attempts left)`));
+      retries--;
+      if (retries === 0) {
+        console.error(chalk.red(`Failed to upgrade file ${filePath} after multiple attempts`));
+        return {
+          file: filePath,
+          changes: 'Upgrade failed',
+          explanation: `Error: ${error.message}`
+        };
+      }
+      await delay(5000); // Wait 5 seconds before retrying
     }
-    console.log('\n');
-
-    // Process the AI response and update the file
-    await processAIResponse(improvedCode, chalk, filePath);
-    console.log(chalk.green(`File ${filePath} has been upgraded.`));
-
-    // Extract and log the explanation
-    const explanationMatch = improvedCode.match(/```[\s\S]*?```\s*([\s\S]*)/);
-    if (explanationMatch) {
-      console.log(chalk.cyan('\nExplanation of changes:'));
-      console.log(explanationMatch[1].trim());
-    }
-  } catch (error) {
-    console.error(chalk.red(`Error upgrading file ${filePath}:`, error.message));
   }
+}
+
+
+function getFileType(fileName) {
+  const extension = path.extname(fileName).toLowerCase();
+  const fileTypeMap = {
+    '.js': 'javascript',
+    '.ts': 'typescript',
+    '.py': 'python',
+    '.java': 'java',
+    '.css': 'css',
+    '.html': 'html',
+    '.json': 'json',
+    // Add more mappings as needed
+  };
+  return fileTypeMap[extension] || 'unknown';
+}
+
+function isUpgradableFile(fileType) {
+  const upgradableTypes = ['javascript', 'typescript', 'python', 'java', 'css', 'html', 'json'];
+  return upgradableTypes.includes(fileType);
+}
+
+function diffSummary(originalContent, upgradedContent) {
+  const changes = diff.diffLines(originalContent, upgradedContent);
+  let added = 0, removed = 0, changed = 0;
+  
+  changes.forEach((part) => {
+    if (part.added) added += part.count;
+    else if (part.removed) removed += part.count;
+    else changed += part.count;
+  });
+
+  return `${added} lines added, ${removed} lines removed, ${changed} lines changed`;
+}
+
+async function performPostUpgradeActions(folderPath, upgradePlan, upgradeSummary, chalk, model) {
+  console.log(chalk.cyan('Performing post-upgrade actions...'));
+
+  // Update dependencies
+  if (upgradePlan.dependencyUpdates) {
+    console.log(chalk.yellow('Updating dependencies...'));
+    for (const [dep, version] of Object.entries(upgradePlan.dependencyUpdates)) {
+      try {
+        await execPromise(`npm install ${dep}@${version}`);
+        console.log(chalk.green(`Updated ${dep} to version ${version}`));
+      } catch (error) {
+        console.error(chalk.red(`Failed to update ${dep}:`, error.message));
+      }
+    }
+  }
+
+  // Generate updated documentation
+  console.log(chalk.yellow('Generating updated documentation...'));
+  await generateDocumentation(folderPath, chalk, model, upgradeSummary);
+
+  // Run tests if available
+  if (await fs.access(path.join(folderPath, 'package.json')).then(() => true).catch(() => false)) {
+    console.log(chalk.yellow('Running tests...'));
+    try {
+      const { stdout } = await execPromise('npm test');
+      console.log(chalk.green('Tests completed successfully.'));
+      console.log(stdout);
+    } catch (error) {
+      console.error(chalk.red('Error running tests:', error.message));
+    }
+  }
+
+  console.log(chalk.green('Post-upgrade actions completed.'));
 }
 
 async function upgradeFolder(folderPath, chalk, model) {
   try {
-    const files = await fs.readdir(folderPath);
+    const files = await fs.readdir(folderPath, { withFileTypes: true });
     const totalFiles = files.length;
     let processedFiles = 0;
+    const upgradeSummary = [];
+
+    console.log(chalk.cyan(`Starting advanced folder upgrade for ${folderPath}`));
+    console.log(chalk.yellow('Analyzing folder structure and files...'));
+
+    // Analyze folder structure
+    const folderStructure = await analyzeFolderStructure(folderPath);
+    console.log(chalk.blue('Folder structure analysis complete.'));
+
+    // Generate upgrade plan with delay
+    await delay(1000); // Add a 1-second delay before making the API call
+    const upgradePlan = await generateUpgradePlan(folderStructure, model);
+    console.log(chalk.green('Upgrade plan generated. Proceeding with upgrades...'));
 
     for (const file of files) {
-      const filePath = path.join(folderPath, file);
-      const stats = await fs.stat(filePath);
+      const filePath = path.join(folderPath, file.name);
 
-      if (stats.isFile()) {
-        await upgradeFile(filePath, chalk, model);
-        processedFiles++;
-        console.log(chalk.cyan(`Progress: ${processedFiles}/${totalFiles} files processed`));
-      } else if (stats.isDirectory()) {
+      if (file.isFile()) {
+        const fileType = getFileType(file.name);
+        if (isUpgradableFile(fileType)) {
+          await delay(7000); // Add a 1-second delay before processing each file
+          const upgradeSummaryItem = await upgradeFile(filePath, chalk, model, fileType, upgradePlan);
+          upgradeSummary.push(upgradeSummaryItem);
+          processedFiles++;
+          console.log(chalk.cyan(`Progress: ${processedFiles}/${totalFiles} files processed`));
+        } else {
+          console.log(chalk.yellow(`Skipping non-upgradable file: ${file.name}`));
+        }
+      } else if (file.isDirectory()) {
         await upgradeFolder(filePath, chalk, model);
       }
     }
 
-    console.log(chalk.green(`Folder upgrade complete. ${processedFiles}/${totalFiles} files were processed.`));
+    // Post-upgrade actions
+    await delay(1000); // Add a 1-second delay before post-upgrade actions
+    await performPostUpgradeActions(folderPath, upgradePlan, upgradeSummary, chalk, model);
+
+    console.log(chalk.green(`Advanced folder upgrade complete for ${folderPath}. ${processedFiles}/${totalFiles} files were processed.`));
+    displayUpgradeSummary(upgradeSummary, chalk);
+
   } catch (error) {
     console.error(chalk.red("Error upgrading folder:", error.message));
+    throw error; // Propagate the error for higher-level error handling
   }
 }
+
+async function analyzeFolderStructure(folderPath) {
+  const structure = {
+    path: folderPath,
+    files: [],
+    subfolders: [],
+    dependencies: new Set(),
+    languages: new Set(),
+  };
+
+  const entries = await fs.readdir(folderPath, { withFileTypes: true });
+
+  for (const entry of entries) {
+    if (entry.isFile()) {
+      const fileType = getFileType(entry.name);
+      structure.files.push({ name: entry.name, type: fileType });
+      structure.languages.add(fileType);
+      
+      if (entry.name === 'package.json') {
+        const packageJson = JSON.parse(await fs.readFile(path.join(folderPath, entry.name), 'utf-8'));
+        Object.keys(packageJson.dependencies || {}).forEach(dep => structure.dependencies.add(dep));
+        Object.keys(packageJson.devDependencies || {}).forEach(dep => structure.dependencies.add(dep));
+      }
+    } else if (entry.isDirectory()) {
+      structure.subfolders.push(await analyzeFolderStructure(path.join(folderPath, entry.name)));
+    }
+  }
+
+  return structure;
+}
+
+async function generateUpgradePlan(folderStructure, model) {
+  const prompt = `
+    Given the following folder structure and analysis, generate an upgrade plan:
+    ${JSON.stringify(folderStructure, null, 2)}
+
+    Provide an upgrade plan that includes:
+    1. Suggested architectural improvements
+    2. Dependency updates and their potential impacts
+    3. Code modernization strategies for each detected language
+    4. Performance optimization opportunities
+    5. Security enhancement recommendations
+
+    Format the upgrade plan as a JSON object.
+  `;
+
+  let retries = 3;
+  while (retries > 0) {
+    try {
+      const result = await model.generateContent(prompt);
+      return JSON.parse(result.response.text());
+    } catch (error) {
+      console.error(chalk.yellow(`Error generating upgrade plan, retrying... (${retries} attempts left)`));
+      retries--;
+      if (retries === 0) throw error;
+      await delay(5000); // Wait 5 seconds before retrying
+    }
+  }
+}
+
 
 async function generateDocumentation(filePath, chalk, model) {
   try {
@@ -913,6 +1075,16 @@ async function generateDocumentation(filePath, chalk, model) {
   } catch (error) {
     console.error(chalk.red(`Error generating documentation for ${filePath}:`, error.message));
   }
+}
+
+function displayUpgradeSummary(upgradeSummary, chalk) {
+  console.log(chalk.cyan('\nUpgrade Summary:'));
+  upgradeSummary.forEach(item => {
+    console.log(chalk.blue(`\nFile: ${item.file}`));
+    console.log(chalk.green(`Changes: ${item.changes}`));
+    console.log(chalk.yellow('Explanation:'));
+    console.log(item.explanation);
+  });
 }
 
 async function optimizePerformance(filePath, chalk, model) {
@@ -1048,7 +1220,7 @@ async function deployProject(platform, chalk) {
 }
 
 async function run() {
-  const chalk = await loadChalk();
+  chalk = await loadChalk();
   const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
   const chat = model.startChat({
     history: [
