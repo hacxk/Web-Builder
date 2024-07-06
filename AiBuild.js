@@ -1027,9 +1027,10 @@ async function generateUpgradePlan(folderStructure, model) {
   while (retries > 0) {
     try {
       const result = await model.generateContent(prompt);
-      return JSON.parse(result.response.text());
+      return result.response.text();
     } catch (error) {
       console.error(chalk.yellow(`Error generating upgrade plan, retrying... (${retries} attempts left)`));
+      console.error(chalk.yellow(error));
       retries--;
       if (retries === 0) throw error;
       await delay(5000); // Wait 5 seconds before retrying
