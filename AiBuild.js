@@ -73,20 +73,16 @@ async function processAIResponse(response, chalk) {
   }
 }
 
-async function upgradeFunction(functionName, functionCode, model, previousFunctions = [], chalk) {
+async function upgradeFunction(functionName, functionCode, model, previousFunctions, chalk) {
   const context = previousFunctions.map(fn => `${fn.name}:\n${fn.code}`).join('\n\n');
-
   const prompt = `
     You are an AI specialized in improving JavaScript code. Your task is to enhance the following function:
-    
+   
     ${functionName}:
     ${functionCode}
-
     Context of previously upgraded functions:
     ${context}
-
     Please improve this function considering the following aspects:
-
     1. Performance optimization
     2. Code readability and maintainability
     3. Error handling and robustness
@@ -95,84 +91,192 @@ async function upgradeFunction(functionName, functionCode, model, previousFuncti
     6. Advanced AI-driven code generation capabilities
     7. Enhanced project management features
     8. Improved self-upgrading mechanisms
-
+    9. Security enhancements
+    10. Scalability improvements
+    11. Integration with external APIs or services if applicable
+    12. Implementation of design patterns where appropriate
     Provide the entire improved function within a code block using the format:
     \`\`\`javascript
     // Improved function here
     \`\`\`
-
-    Also, provide a brief explanation of the improvements made.
+    Also, provide a brief explanation of the improvements made, including any potential trade-offs or considerations.
   `;
-
   console.log(chalk.yellow(`Upgrading function: ${functionName}`));
-
-  const result = await model.generateContent(prompt);
-  const improvedCode = result.response.text();
-
-  const codeBlockRegex = /```(?:javascript|js)?\s*([\s\S]*?)\s*```/;
-  const match = improvedCode.match(codeBlockRegex);
-
-  if (match) {
-    const upgradedFunction = match[1].trim();
-    const explanation = improvedCode.split('```')[2]?.trim() || 'No explanation provided.';
-    return { upgradedFunction, explanation };
-  } else {
-    throw new Error('No valid code block found in AI response');
+  try {
+    const result = await model.generateContent(prompt);
+    const improvedCode = result.response.text();
+    const codeBlockRegex = /```(?:javascript|js)?\s*([\s\S]*?)\s*```/;
+    const match = improvedCode.match(codeBlockRegex);
+    if (match) {
+      const upgradedFunction = match[1].trim();
+      const explanation = improvedCode.split('```')[2]?.trim() || 'No explanation provided.';
+      return { upgradedFunction, explanation };
+    } else {
+      throw new Error('No valid code block found in AI response');
+    }
+  } catch (error) {
+    console.error(chalk.red(`Error in AI response for ${functionName}:`, error.message));
+    throw error;
   }
 }
 
 async function upgradeSelf(chalk, model) {
-  const fileName = 'advanced_self_upgrading_assistant.js';
-  let fileContent = await fs.readFile(fileName, 'utf-8');
-  const functionRegex = /async function (\w+)\([^)]*\) {[\s\S]*?}/g;
+  const fileName = 'upgrade.js';
+  let fileContent;
+  try {
+    fileContent = await fs.readFile(fileName, 'utf-8');
+  } catch (error) {
+    console.error(chalk.red(`Error reading file ${fileName}:`, error.message));
+    return;
+  }
 
-  let match;
+  const functionRegex = /(?:async\s+)?function\s+(\w+)\s*\([^)]*\)\s*{[\s\S]*?}/g;
   let upgradedContent = fileContent;
   const upgradedFunctions = [];
-
   console.log(chalk.cyan('Starting advanced self-upgrade process...'));
 
+  // Create a backup before making any changes
+  const backupFileName = `${fileName}.backup-${Date.now()}.js`;
+  try {
+    await fs.writeFile(backupFileName, fileContent);
+    console.log(chalk.green(`Original file backed up as: ${backupFileName}`));
+  } catch (error) {
+    console.error(chalk.red(`Error creating backup file:`, error.message));
+    return;
+  }
+
+  // Analyze dependencies and update them if necessary
+  await updateDependencies(chalk);
+
+  let match;
   while ((match = functionRegex.exec(fileContent)) !== null) {
     const functionName = match[1];
     const functionCode = match[0];
-
+    console.log(chalk.yellow(`Found function: ${functionName}`));
     try {
       const { upgradedFunction, explanation } = await upgradeFunction(functionName, functionCode, model, upgradedFunctions, chalk);
       upgradedContent = upgradedContent.replace(functionCode, upgradedFunction);
       upgradedFunctions.push({ name: functionName, code: upgradedFunction });
-
       console.log(chalk.green(`Function ${functionName} upgraded successfully.`));
       console.log(chalk.blue('Improvements:'));
       console.log(chalk.blue(explanation));
+
+      // Validate the upgraded function
+      await validateFunction(upgradedFunction, chalk);
     } catch (error) {
       console.error(chalk.red(`Error upgrading function ${functionName}:`, error.message));
+      console.log(chalk.yellow(`Keeping original implementation for ${functionName}`));
     }
-
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 1000)); // Rate limiting
   }
 
-  const backupFileName = `${fileName}.backup-${Date.now()}.js`;
-  await fs.writeFile(backupFileName, fileContent);
-  console.log(chalk.green(`Original file backed up as: ${backupFileName}`));
+  // Add new features if necessary
+  try {
+    upgradedContent = await addNewFeatures(upgradedContent, model, chalk);
+  } catch (error) {
+    console.error(chalk.red(`Error adding new features:`, error.message));
+  }
 
-  await fs.writeFile(fileName, upgradedContent);
-  console.log(chalk.green('Advanced self-upgrade complete. New version saved.'));
+  try {
+    await fs.writeFile(fileName, upgradedContent);
+    console.log(chalk.green('Advanced self-upgrade complete. New version saved.'));
+  } catch (error) {
+    console.error(chalk.red(`Error writing upgraded file:`, error.message));
+    return;
+  }
+
+  // Run tests if available
+  await runTests(chalk);
 
   const shouldRestart = await question(chalk.yellow('Do you want to restart the program now to use the upgraded version? (y/n) '), chalk);
   if (shouldRestart.toLowerCase() === 'y') {
     console.log(chalk.green('Restarting the program...'));
-    process.on('exit', () => {
-      require('child_process').spawn(process.argv.shift(), process.argv, {
-        cwd: process.cwd(),
-        detached: true,
-        stdio: 'inherit'
-      });
-    });
-    process.exit();
+    restartProgram();
   } else {
     console.log(chalk.yellow('Please restart the program manually to use the upgraded version.'));
   }
 }
+
+function restartProgram() {
+  process.on('exit', () => {
+    require('child_process').spawn(process.argv[0], process.argv.slice(1), {
+      cwd: process.cwd(),
+      detached: true,
+      stdio: 'inherit'
+    });
+  });
+  process.exit();
+}
+
+async function updateDependencies(chalk) {
+  console.log(chalk.cyan('Checking for dependency updates...'));
+  try {
+    const { stdout } = await exec('npm outdated --json');
+    let outdatedDeps;
+    try {
+      outdatedDeps = JSON.parse(stdout);
+    } catch (parseError) {
+      console.error(chalk.red('Error parsing npm outdated output:', parseError.message));
+      console.log(chalk.yellow('Raw output:'), stdout);
+      return;
+    }
+    if (Object.keys(outdatedDeps).length > 0) {
+      console.log(chalk.yellow('Updating dependencies...'));
+      const { stdout: updateStdout, stderr: updateStderr } = await exec('npm update');
+      console.log(chalk.green('Dependencies updated successfully.'));
+      console.log(chalk.blue('Update details:'), updateStdout);
+      if (updateStderr) console.log(chalk.yellow('Update warnings:'), updateStderr);
+    } else {
+      console.log(chalk.green('All dependencies are up to date.'));
+    }
+  } catch (error) {
+    console.error(chalk.red('Error updating dependencies:', error.message));
+    if (error.stdout) console.log(chalk.yellow('Command output:'), error.stdout);
+    if (error.stderr) console.log(chalk.yellow('Command errors:'), error.stderr);
+  }
+}
+
+async function validateFunction(functionCode, chalk) {
+  try {
+    // Use a JavaScript runtime to evaluate the function
+    new Function(functionCode);
+    console.log(chalk.green('Function validated successfully.'));
+  } catch (error) {
+    console.error(chalk.red('Function validation failed:', error.message));
+    throw error; // Re-throw to trigger the recovery mechanism
+  }
+}
+
+async function addNewFeatures(content, model, chalk) {
+  console.log(chalk.cyan('Analyzing for potential new features...'));
+  const prompt = `
+    Analyze the following code and suggest new features or functions that could enhance its capabilities:
+    ${content}
+    Provide suggestions in the following format:
+    1. [Feature Name]: [Brief description]
+    [Code block with implementation]
+    2. [Feature Name]: [Brief description]
+    [Code block with implementation]
+    ...
+  `;
+  const result = await model.generateContent(prompt);
+  const suggestions = result.response.text();
+  console.log(chalk.yellow('AI Suggestions for new features:'));
+  console.log(suggestions);
+  
+  const shouldAdd = await question(chalk.yellow('Do you want to add these new features? (y/n) '), chalk);
+  if (shouldAdd.toLowerCase() === 'y') {
+    const featureRegex = /\d+\.\s+\[(.+?)\]:[^\n]+\n```(?:javascript|js)?\s*([\s\S]*?)```/g;
+    let match;
+    while ((match = featureRegex.exec(suggestions)) !== null) {
+      const [, featureName, implementation] = match;
+      content += `\n\n// New feature: ${featureName}\n${implementation.trim()}`;
+    }
+    console.log(chalk.green('New features added successfully.'));
+  }
+  return content;
+}
+
 
 async function createFileOrFolder(pathString, content, chalk) {
   try {
@@ -367,7 +471,7 @@ async function upgradeFile(filePath, chalk, model) {
       4. Modern language features and best practices
       5. Potential new features or improvements
 
-      Provide the improved code within a code block using:
+      Provide the improved full code without any missing code within a code block using:
       \`\`\`file:${filePath}
       // Improved code here
       \`\`\`
