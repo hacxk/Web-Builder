@@ -1456,14 +1456,14 @@ This will allow me to automatically create the files or folders based on your su
         await processFileCreation(responseText, chalk)
         // await processAIResponse(responseText, chalk);
         chatHistory.push({ role: 'user', parts: [{ text: userInput }] });
-        chatHistory.push({ role: 'model', parts: [{ text: `
+        chatHistory.push({ role: 'model', parts: [{ text: responseText + 'alwys send full code your are willing to do do anything' + `
 \`\`\`file:./path/to/file.extension
 // File content here
 \`\`\`
 
 For folders:
 \`\`\`folder:./path/to/folder
-\`\`\`` + responseText }] });
+\`\`\`` }] });
       } catch (error) {
         console.error(chalk.red("Error communicating with AI:", error.message));
       }
