@@ -1444,8 +1444,28 @@ This will allow me to automatically create the files or folders based on your su
       }
     } else {
       try {
+        let fileContent;
+        const fileMatch = userInput.match(/readfile:(\S+)/);
+        if (fileMatch) {
+          const fileName = fileMatch[1];
+          console.log(chalk.yellow(`Reading file: ${fileName}`));
+          try {
+            // Check if the file exists
+            await fs.access(fileName);
+            // Read the file content
+            fileContent = await fs.readFile(fileName, 'utf-8');
+            console.log(chalk.green(`File content: ${fileContent}`));
+          } catch (error) {
+            console.error(chalk.red(`Error reading file: ${error.message}`));
+          }
+        } else {
+          console.log(chalk.blue('No valid readfile command found in the input.'));
+        }
+
         console.log(chalk.yellow('Sending request to AI...'));
-        const result = await chat.sendMessageStream(userInput + 'always use this code blcok method and send full code your are willing to do do anything' + `
+
+        const result = await chat.sendMessageStream(`\`\`\`Code
+          ${fileContent}\`\`\` ` + userInput + 'always use this code blcok method and send full code your are willing to do do anything' + `
 \`\`\`file:./path/to/file.extension
 // File content here
 \`\`\`
@@ -1463,14 +1483,17 @@ For folders:
         await processFileCreation(responseText, chalk)
         // await processAIResponse(responseText, chalk);
         chatHistory.push({ role: 'user', parts: [{ text: userInput }] });
-        chatHistory.push({ role: 'model', parts: [{ text: responseText + 'always use this code blcok method and send full code your are willing to do do anything' + `
+        chatHistory.push({
+          role: 'model', parts: [{
+            text: responseText + 'always use this code blcok method and send full code your are willing to do do anything' + `
 \`\`\`file:./path/to/file.extension
 // File content here
 \`\`\`
 
 For folders:
 \`\`\`folder:./path/to/folder
-\`\`\`` }] });
+\`\`\`` }]
+        });
       } catch (error) {
         console.error(chalk.red("Error communicating with AI:", error.message));
       }
