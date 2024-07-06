@@ -1467,7 +1467,13 @@ This will allow me to automatically create the files or folders based on your su
         console.log(chalk.yellow('Sending request to AI...'));
 
         const result = await chat.sendMessageStream(`\`\`\`${path}
-          ${fileContent}\`\`\` ` + userInput + 'You have 1.5 Million Token Window So Dont be affraid of creating atlest 500 Lines of code taht is easy for u alaways be acctive and advanced also Remember, always send the latest working code. Do not provide examples or placeholders Example:  // ... (Your existing code). Your response should always include the full, updated code. always use this code blcok method and send full code your are willing to do do anything' + `
+          ${fileContent}\`\`\` ` + userInput + `\`\`\`file:./path/to/file.extension
+// File content here
+\`\`\`
+
+For folders:
+\`\`\`folder:./path/to/folder
+\`\`\`` + 'You have 1.5 Million Token Window So Dont be affraid of creating atlest 500 Lines of code taht is easy for u alaways be acctive and advanced also Remember, always send the latest working code. Do not provide examples or placeholders Example:  // ... (Your existing code). Your response should always include the full, updated code. always use this code blcok method and send full code your are willing to do do anything' + `
 \`\`\`file:./path/to/file.extension
 // File content here
 \`\`\`
