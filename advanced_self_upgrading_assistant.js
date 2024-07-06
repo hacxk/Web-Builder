@@ -3,6 +3,10 @@ const util = require('util');
 const execPromise = util.promisify(exec);
 const fs = require('fs').promises;
 const path = require('path');
+const chokidar = require('chokidar');
+const { debounce, throttle } = require('lodash');
+const { promisify } = require('util');
+const sleep = promisify(setTimeout);
 
 async function analyzeDependencies(chalk) {
   if (!currentProject) {
@@ -109,10 +113,341 @@ async function automatedCodeReview(filePath, chalk, model) {
   }
 }
 
+async function askAi(filePath, chalk, model) {
+  try {
+    console.log(chalk.cyan(`Gemini is Loading.....`));
+
+    const prompt = `
+      Always Be Active and 100% Confident EXPLAIN LIKE A BUTTER WHAT WE ASK
+      ${filePath}
+    `;
+
+    const result = await model.generateContent(prompt);
+    const review = result.response.text();
+
+    console.log(chalk.green("Gemini Result:"));
+    console.log(review);
+  } catch (error) {
+    console.error(chalk.red("Error performing Gemini review:", error.message));
+  }
+}
+
+
+async function advancedRealTimeCodeSession(filePath, chalk, model) {
+  console.log(chalk.green(`Starting enhanced advanced real-time code session for ${filePath}`));
+
+  let previousContent = '';
+  let aiSuggestions = new Map();
+
+  const watcher = chokidar.watch(filePath, {
+    persistent: true,
+    usePolling: true,
+    interval: 100
+  });
+
+  const processChanges = debounce(async (path) => {
+    try {
+      const content = await fs.readFile(path, 'utf-8');
+      if (content === previousContent) return;
+
+      console.log(chalk.cyan('File updated. Performing advanced analysis...'));
+
+      // Analyze code structure
+      const codeStructure = analyzeCodeStructure(content);
+      console.log(chalk.yellow('Code Structure Analysis:'));
+      console.log(JSON.stringify(codeStructure, null, 2));
+
+      // Analyze code changes and get AI suggestions
+      const changedLines = getChangedLines(previousContent, content);
+      for (const lineNumber of changedLines) {
+        await processLine(lineNumber, content, model, chalk, aiSuggestions);
+      }
+
+      // Generate and display real-time code insights
+      const insights = await generateAdvancedCodeInsights(content, model, chalk);
+
+      // Apply AI suggestions and insights to the file
+      const updatedContent = applyAISuggestionsAndInsights(content, aiSuggestions, insights);
+
+      // Write updated content with AI-generated comments back to file
+      await fs.writeFile(path, updatedContent, 'utf-8');
+
+      console.log(chalk.green('File updated with AI suggestions and insights.'));
+
+      previousContent = updatedContent;
+    } catch (error) {
+      console.error(chalk.red('Error in real-time session:', error));
+    }
+  }, 5000); // 5 seconds debounce time
+
+  watcher.on('change', processChanges);
+
+  console.log(chalk.green(`Watching ${filePath} for changes. Press Ctrl+C to stop.`));
+
+  // Keep the process running
+  return new Promise(() => { });
+}
+
+const processLine = throttle(async (lineNumber, content, model, chalk, aiSuggestions) => {
+  const lines = content.split('\n');
+  const contextStart = Math.max(0, lineNumber - 3);
+  const contextEnd = Math.min(lines.length, lineNumber + 2);
+  const contextLines = lines.slice(contextStart, contextEnd);
+  
+  const prompt = `
+    Analyze this JavaScript code snippet in the context of a larger file:
+    
+    \`\`\`javascript
+    ${contextLines.join('\n')}
+    \`\`\`
+    
+    Focus on line ${lineNumber - contextStart + 1} (1-indexed in this snippet).
+    
+    Provide:
+    1. A concise explanation of the code's purpose.
+    2. Potential optimizations or best practices, considering modern JavaScript features.
+    3. Possible edge cases or error scenarios, including security considerations.
+    4. A suggested inline comment (if appropriate) that adds value beyond just restating the code.
+    5. Any potential impact on application performance or scalability.
+    
+    Format your response as JSON with keys: purpose, optimizations, edgeCases, comment, performanceImpact.
+  `;
+
+  try {
+    const result = await model.generateContent([{ type: "text", text: prompt }]);
+    const suggestion = result.response.text();
+
+    try {
+      const parsedSuggestion = parseAIResponse(suggestion);
+      aiSuggestions.set(lineNumber, parsedSuggestion);
+
+      // Display AI insights
+      console.log(chalk.blue(`AI Insights for line ${lineNumber}:`));
+      console.log(chalk.cyan(`Purpose: ${parsedSuggestion.purpose}`));
+      console.log(chalk.green(`Optimizations: ${parsedSuggestion.optimizations}`));
+      console.log(chalk.yellow(`Edge Cases: ${parsedSuggestion.edgeCases}`));
+      console.log(chalk.magenta(`Performance Impact: ${parsedSuggestion.performanceImpact}`));
+
+      // Automatically insert AI-generated inline comment
+      if (parsedSuggestion.comment) {
+        content = insertInlineComment(content, lineNumber, parsedSuggestion.comment);
+      }
+    } catch (parseError) {
+      console.error(chalk.red('Error parsing AI suggestion:', parseError.message));
+    }
+  } catch (error) {
+    console.error(chalk.red('Error generating AI suggestion:', error.message));
+    if (error.message.includes('429')) {
+      console.log(chalk.yellow('Rate limit reached. Implementing exponential backoff...'));
+      await exponentialBackoff(() => processLine(lineNumber, content, model, chalk, aiSuggestions));
+    }
+  }
+}, 10000, { leading: true, trailing: false }); // Throttle to one request per 10 seconds
+
+async function exponentialBackoff(func, maxRetries = 5) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await func();
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+      const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+      console.log(chalk.yellow(`Retrying in ${delay / 1000} seconds...`));
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
+function parseAIResponse(response) {
+  try {
+    return JSON.parse(response);
+  } catch (e) {
+    const jsonMatch = response.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch (e) {
+        console.warn(chalk.yellow('Failed to parse AI response as JSON. Extracting available information.'));
+        return {
+          purpose: extractInfo(response, 'purpose'),
+          optimizations: extractInfo(response, 'optimizations'),
+          edgeCases: extractInfo(response, 'edge cases'),
+          comment: extractInfo(response, 'comment'),
+          performanceImpact: extractInfo(response, 'performance impact')
+        };
+      }
+    } else {
+      throw new Error('Unable to parse AI response');
+    }
+  }
+}
+
+function extractInfo(text, key) {
+  const regex = new RegExp(`${key}:?\\s*(.+?)(?=\\n|$)`, 'is');
+  const match = text.match(regex);
+  return match ? match[1].trim() : 'Information not available';
+}
+
+function analyzeCodeStructure(content) {
+  const structure = {
+    functionCount: 0,
+    asyncFunctionCount: 0,
+    classCount: 0,
+    importCount: 0,
+    exportCount: 0,
+    loopCount: 0,
+    conditionalCount: 0,
+    tryBlockCount: 0,
+    callbackCount: 0,
+    promiseCount: 0,
+    complexityScore: 0
+  };
+
+  const lines = content.split('\n');
+  lines.forEach(line => {
+    if (line.match(/\bfunction\s+\w+\s*\(/)) structure.functionCount++;
+    if (line.match(/\basync\s+function\s+\w+\s*\(/)) structure.asyncFunctionCount++;
+    if (line.match(/\bclass\s+\w+/)) structure.classCount++;
+    if (line.match(/\bimport\s+.+from/)) structure.importCount++;
+    if (line.match(/\bexport\s+(default\s+)?\w+/)) structure.exportCount++;
+    if (line.match(/\b(for|while)\s*\(/)) structure.loopCount++;
+    if (line.match(/\bif\s*\(/)) structure.conditionalCount++;
+    if (line.match(/\btry\s*\{/)) structure.tryBlockCount++;
+    if (line.match(/\b\w+\s*\(\s*(?:function|\([^)]*\)\s*=>\s*{)/)) structure.callbackCount++;
+    if (line.match(/\bnew\s+Promise\s*\(/)) structure.promiseCount++;
+  });
+
+  structure.complexityScore = calculateComplexityScore(structure);
+
+  return structure;
+}
+
+function calculateComplexityScore(structure) {
+  return (
+    structure.functionCount * 2 +
+    structure.asyncFunctionCount * 3 +
+    structure.classCount * 4 +
+    structure.loopCount * 2 +
+    structure.conditionalCount * 1.5 +
+    structure.tryBlockCount * 1 +
+    structure.callbackCount * 1.5 +
+    structure.promiseCount * 2
+  );
+}
+
+function getChangedLines(oldContent, newContent) {
+  const oldLines = oldContent.split('\n');
+  const newLines = newContent.split('\n');
+  const changedLines = [];
+
+  for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
+    if (oldLines[i] !== newLines[i]) {
+      changedLines.push(i + 1);
+    }
+  }
+
+  return changedLines;
+}
+
+function applyAISuggestionsAndInsights(content, aiSuggestions, insights) {
+  let lines = content.split('\n');
+
+  // Apply line-specific suggestions
+  for (const [lineNumber, suggestion] of aiSuggestions.entries()) {
+    lines[lineNumber - 1] = `${lines[lineNumber - 1]} // AI: ${suggestion.comment}`;
+  }
+
+  // Add overall insights as a comment block at the top of the file
+  const insightComments = [
+    '/**',
+    ' * AI-Generated Code Insights:',
+    ` * Quality Score: ${insights.qualityScore}`,
+    ` * Security Issues: ${insights.securityIssues}`,
+    ` * Scalability: ${insights.scalabilityConsiderations}`,
+    ' * Top Improvements:',
+    ...insights.improvements.map((imp, i) => ` *   ${i + 1}. ${imp}`),
+    ` * Architecture: ${insights.architectureAssessment}`,
+    ` * Performance Considerations: ${insights.performanceConsiderations}`,
+    ' */',
+    ''
+  ];
+
+  return [...insightComments, ...lines].join('\n');
+}
+
+function insertInlineComment(content, lineNumber, comment) {
+  const lines = content.split('\n');
+  lines[lineNumber - 1] += ` // AI: ${comment}`;
+  return lines.join('\n');
+}
+
+async function generateAdvancedCodeInsights(content, model, chalk) {
+  const insightPrompt = `
+    Perform an advanced analysis of this JavaScript code and provide detailed insights:
+    
+    \`\`\`javascript
+    ${content}
+    \`\`\`
+    
+    Provide:
+    1. Code quality score (0-100) with detailed justification.
+    2. Potential security vulnerabilities, including specific attack vectors if applicable.
+    3. Scalability considerations, focusing on potential bottlenecks.
+    4. Top 5 improvement suggestions, ordered by priority.
+    5. Overall code architecture assessment, including patterns used and potential improvements.
+    6. Performance considerations and optimization opportunities.
+    7. Maintainability score (0-100) with justification.
+    8. Code smell detection and refactoring suggestions.
+    
+    Format your response as JSON with keys: qualityScore, qualityJustification, securityIssues, scalabilityConsiderations, improvements, architectureAssessment, performanceConsiderations, maintainabilityScore, maintainabilityJustification, codeSmells.
+  `;
+
+  try {
+    const result = await model.generateContent([{ type: "text", text: insightPrompt }]);
+    const insightText = result.response.text();
+
+    try {
+      const insights = parseAIResponse(insightText);
+      displayInsights(insights, chalk);
+      return insights;
+    } catch (parseError) {
+      console.error(chalk.red('Error parsing advanced code insights:', parseError.message));
+      return {};
+    }
+  } catch (error) {
+    console.error(chalk.red('Error generating advanced code insights:', error.message));
+    if (error.message.includes('429')) {
+      console.log(chalk.yellow('Rate limit reached for code insights. Implementing exponential backoff...'));
+      return await exponentialBackoff(() => generateAdvancedCodeInsights(content, model, chalk));
+    }
+  }
+}
+
+function displayInsights(insights, chalk) {
+  console.log(chalk.green(`Code Quality Score: ${insights.qualityScore || 'N/A'}`));
+  console.log(chalk.yellow(`Quality Justification: ${insights.qualityJustification || 'N/A'}`));
+  console.log(chalk.red(`Security Issues: ${insights.securityIssues || 'N/A'}`));
+  console.log(chalk.blue(`Scalability Considerations: ${insights.scalabilityConsiderations || 'N/A'}`));
+  console.log(chalk.magenta('Top 5 Improvements:'));
+  (insights.improvements || []).forEach((improvement, index) => {
+    console.log(chalk.magenta(`  ${index + 1}. ${improvement}`));
+  });
+  console.log(chalk.cyan(`Architecture Assessment: ${insights.architectureAssessment || 'N/A'}`));
+  console.log(chalk.yellow(`Performance Considerations: ${insights.performanceConsiderations || 'N/A'}`));
+  console.log(chalk.green(`Maintainability Score: ${insights.maintainabilityScore || 'N/A'}`));
+  console.log(chalk.yellow(`Maintainability Justification: ${insights.maintainabilityJustification || 'N/A'}`));
+  console.log(chalk.red('Code Smells:'));
+  (insights.codeSmells || []).forEach((smell, index) => {
+    console.log(chalk.red(`  ${index + 1}. ${smell}`));
+  });
+}
+
+
 module.exports = {
   analyzeDependencies,
   checkCodeQuality,
   profilePerformance,
   generateAPIDocs,
-  automatedCodeReview
+  automatedCodeReview,
+  askAi,
+  advancedRealTimeCodeSession
 };

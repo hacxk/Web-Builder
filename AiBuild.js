@@ -6,7 +6,15 @@ const readline = require('readline');
 const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
-const { analyzeDependencies, checkCodeQuality, profilePerformance, generateAPIDocs, automatedCodeReview } = require('./advanced_self_upgrading_assistant');
+const {
+  analyzeDependencies,
+  checkCodeQuality,
+  profilePerformance,
+  generateAPIDocs,
+  automatedCodeReview,
+  askAi,
+  advancedRealTimeCodeSession
+} = require('./advanced_self_upgrading_assistant');
 
 const genAI = new GoogleGenerativeAI(process.env.API_KEY);
 
@@ -361,17 +369,11 @@ async function upgradeFile(filePath, chalk, model) {
       // Improved code here
       \`\`\`
 
-      If Additional File Like Js, css, jsx, etc send like this 
-       \`\`\`file:${filePath}
-      // the file content
-      \`\`\`
-
       After the code block, provide a brief explanation of your changes and enhancements.
     `;
 
     const result = await model.generateContent(prompt);
     const improvedCode = result.response.text();
-    console.log(chalk.red(improvedCode))
 
     await processAIResponse(improvedCode, chalk);
 
@@ -413,245 +415,174 @@ async function upgradeFolder(folderPath, chalk, model) {
   }
 }
 
-
-async function upgradeFunction(functionName, functionCode, model, previousFunctions = []) {
-  const context = previousFunctions.map(fn => `${fn.name}:\n${fn.code}`).join('\n\n');
-
-  const prompt = `
-    You are an AI specialized in improving JavaScript code. Your task is to enhance the following function:
-    
-    ${functionName}:
-    ${functionCode}
-
-    Context of previously upgraded functions:
-    ${context}
-
-    Please improve this function considering the following aspects:
-
-    1. Performance optimization
-    2. Code readability and maintainability
-    3. Error handling and robustness
-    4. Modern JavaScript features and best practices
-    5. Consistency with previously upgraded functions
-    6. Need To Be More Improved Each Time to Make Fully Automated no a person needed to control
-
-    Provide the entire improved function within a code block using the format:
-    \`\`\`javascript
-    // Improved function here
-    \`\`\`
-
-    Also, provide a brief explanation of the improvements made.
-  `;
-  const results = await model.generateContentStream(prompt);
-
-  let result = '';
-  for await (const chunk of results.stream) {
-    result += chunk.text();
-    console.log(chalk.red(result)); // Log the AI response in real-time
-  }
-  const response = await result.response;
-  const improvedCode = response.text();
-
-  const codeBlockRegex = /```(?:javascript|json|html|css|python|java|cpp)?\s*\n([\s\S]*?)\n```/;
-  const match = improvedCode.match(codeBlockRegex);
-
-  if (match) {
-    const upgradedFunction = match[1].trim();
-    const explanation = improvedCode.split('```')[2]?.trim() || 'No explanation provided.';
-    return { upgradedFunction, explanation };
-  } else {
-    throw new Error('No valid code block found in AI response');
-  }
-}
-
-async function upgradeSelf(chalk, model) {
-  const fileName = 'self_upgrading_assistant.js';
-  let fileContent = await fs.readFile(fileName, 'utf-8');
-  const functionRegex = /async function (\w+)\([^)]*\) {[\s\S]*?}/g;
-
-  let match;
-  let upgradedContent = fileContent;
-  const upgradedFunctions = [];
-
-  console.log(chalk.cyan('Starting self-upgrade process...'));
-
-  while ((match = functionRegex.exec(fileContent)) !== null) {
-    const functionName = match[1];
-    const functionCode = match[0];
-
-    console.log(chalk.yellow(`Upgrading function: ${functionName}`));
-
-    try {
-      const { upgradedFunction, explanation } = await upgradeFunction(functionName, functionCode, model, upgradedFunctions);
-      upgradedContent = upgradedContent.replace(functionCode, upgradedFunction + '\n');
-      upgradedFunctions.push({ name: functionName, code: upgradedFunction });
-
-      console.log(chalk.green(`Function ${functionName} upgraded successfully.`));
-      console.log(chalk.blue('Improvements:'));
-      console.log(chalk.blue(explanation));
-    } catch (error) {
-      console.error(chalk.red(`Error upgrading function ${functionName}:`, error.message));
-    }
-
-    // Add a brief pause between function upgrades to avoid rate limiting
-    await new Promise(resolve => setTimeout(resolve, 1000));
-  }
-
-  // Backup the original file
-  const backupFileName = `${fileName}.backup-${Date.now()}.js`;
-  await fs.writeFile(backupFileName, fileContent);
-  console.log(chalk.green(`Original file backed up as: ${backupFileName}`));
-
-  // Write the upgraded content
-  await fs.writeFile(fileName, upgradedContent);
-  console.log(chalk.green('Self-upgrade complete. New version saved.'));
-
-  // Offer to restart the program
-  const shouldRestart = await question(chalk.yellow('Do you want to restart the program now to use the upgraded version? (y/n) '), chalk);
-  if (shouldRestart.toLowerCase() === 'y') {
-    console.log(chalk.green('Restarting the program...'));
-    process.on('exit', () => {
-      require('child_process').spawn(process.argv.shift(), process.argv, {
-        cwd: process.cwd(),
-        detached: true,
-        stdio: 'inherit'
-      });
-    });
-    process.exit();
-  } else {
-    console.log(chalk.yellow('Please restart the program manually to use the upgraded version.'));
-  }
-}
-
-async function createOrUpdateFile(filePath, fileContent) {
+async function generateDocumentation(filePath, chalk, model) {
   try {
-    const resolvedPath = path.resolve(filePath);
-    const fileExists = await fs.access(resolvedPath)
-      .then(() => true)
-      .catch(() => false);
+    const fileContent = await fs.readFile(filePath, 'utf-8');
+    const fileExtension = path.extname(filePath).slice(1);
+    console.log(chalk.yellow(`Generating documentation for ${filePath}...`));
 
-    if (fileExists) {
-      await fs.writeFile(resolvedPath, fileContent);
-      console.log(chalk.green(`File updated: ${resolvedPath}`));
-    } else {
-      const directoryPath = path.dirname(resolvedPath);
-      await fs.mkdir(directoryPath, { recursive: true });
-      await fs.writeFile(resolvedPath, fileContent);
-      console.log(chalk.green(`File created: ${resolvedPath}`));
+    const prompt = `
+      Analyze the following ${fileExtension} code and generate comprehensive documentation:
+
+      \`\`\`${fileExtension}
+      ${fileContent}
+      \`\`\`
+
+      Generate documentation that includes:
+      1. Overview of the file's purpose
+      2. Detailed explanations of functions and classes
+      3. Parameters, return values, and their types
+      4. Usage examples
+      5. Any important notes or caveats
+
+      Additional Notes:
+      1. Need to Be Highly Proffessional 
+      2. Need to Be Highly Beautifull
+      3. Need to Be 100% Human Written
+
+      Provide the documentation in Markdown format.
+    `;
+
+    const result = await model.generateContent(prompt);
+    const documentation = result.response.text();
+
+    const docFilePath = `${filePath}.md`;
+    await fs.writeFile(docFilePath, documentation);
+    console.log(chalk.green(`Documentation generated: ${docFilePath}`));
+  } catch (error) {
+    console.error(chalk.red(`Error generating documentation for ${filePath}:`, error.message));
+  }
+}
+
+async function optimizePerformance(filePath, chalk, model) {
+  try {
+    const fileContent = await fs.readFile(filePath, 'utf-8');
+    const fileExtension = path.extname(filePath).slice(1);
+    console.log(chalk.yellow(`Optimizing performance for ${filePath}...`));
+
+    const prompt = `
+      Analyze and optimize the performance of the following ${fileExtension} code:
+
+      \`\`\`${fileExtension}
+      ${fileContent}
+      \`\`\`
+
+      Provide optimizations focusing on:
+      1. Algorithmic efficiency
+      2. Memory usage
+      3. Asynchronous operations
+      4. Caching strategies
+      5. Resource management
+
+      Return the optimized code within a code block using:
+      \`\`\`file:${filePath}
+      // Optimized code here
+      \`\`\`
+
+      After the code block, provide a brief explanation of the optimizations made.
+    `;
+
+    const result = await model.generateContent(prompt);
+    const optimizedCode = result.response.text();
+
+    await processAIResponse(optimizedCode, chalk);
+
+    console.log(chalk.green(`File ${filePath} has been optimized for performance.`));
+
+    // Extract and log the explanation
+    const explanationMatch = optimizedCode.match(/```[\s\S]*?```\s*([\s\S]*)/);
+    if (explanationMatch) {
+      console.log(chalk.cyan('\nExplanation of optimizations:'));
+      console.log(explanationMatch[1].trim());
     }
   } catch (error) {
-    console.error(chalk.red(`Error creating or updating file ${filePath}:`, error.message));
+    console.error(chalk.red(`Error optimizing performance for ${filePath}:`, error.message));
   }
 }
 
-async function handleUserInput(input, chalk) {
-  const inputRegex = /^\.\/src\/(.+)\s+(.+)/;
-  const match = input.match(inputRegex);
-
-  if (match) {
-    const filePath = match[1];
-    const fileContent = match[2];
-    await createOrUpdateFile(filePath, fileContent);
-  } else {
-    console.log(chalk.yellow('Invalid input format. Please use format: .src/filepath/name filecontent'));
-  }
-}
-
-async function createProject(projectName, chalk) {
-  currentProject = projectName;
-  await fs.mkdir(projectName);
-  process.chdir(projectName);
-  await execPromise('npm init -y');
-  console.log(chalk.green(`Project ${projectName} created and initialized.`));
-}
-
-async function installDependency(dependency, chalk) {
-  if (!currentProject) {
-    console.log(chalk.yellow("No active project. Create a project first."));
-    return;
-  }
-  await execPromise(`npm install ${dependency}`);
-  console.log(chalk.green(`Installed ${dependency}`));
-}
-
-async function runCommand(command, chalk) {
-  if (!currentProject) {
-    console.log(chalk.yellow("No active project. Create a project first."));
-    return;
-  }
-  const { stdout, stderr } = await execPromise(command);
-  console.log('stdout:', stdout);
-  console.log('stderr:', stderr);
-}
-
-async function searchFiles(keyword, chalk) {
-  const files = await fs.readdir('.');
-  const matchingFiles = files.filter(file => file.includes(keyword));
-  console.log(chalk.cyan(`Files matching '${keyword}':`));
-  matchingFiles.forEach(file => console.log(chalk.cyan(file)));
-}
-
-async function gitOperations(operation, args, chalk) {
-  if (!currentProject) {
-    console.log(chalk.yellow("No active project. Create a project first."));
-    return;
-  }
-
-  switch (operation) {
-    case 'init':
-      await execPromise('git init');
-      console.log(chalk.green('Git repository initialized.'));
-      break;
-    case 'add':
-      await execPromise(`git add ${args.join(' ')}`);
-      console.log(chalk.green('Files added to staging area.'));
-      break;
-    case 'commit':
-      await execPromise(`git commit -m "${args.join(' ')}"`);
-      console.log(chalk.green('Changes committed.'));
-      break;
-    case 'status':
-      const { stdout } = await execPromise('git status');
-      console.log(chalk.cyan('Git status:'));
-      console.log(stdout);
-      break;
-    default:
-      console.log(chalk.yellow(`Unsupported git operation: ${operation}`));
-  }
-}
-
-async function saveCodeSnippet(name, content, chalk) {
-  const snippetsDir = path.join(currentProject || '.', 'snippets');
-  await fs.mkdir(snippetsDir, { recursive: true });
-  const filePath = path.join(snippetsDir, `${name}.txt`);
-  await fs.writeFile(filePath, content);
-  console.log(chalk.green(`Snippet '${name}' saved to ${filePath}`));
-}
-
-async function listCodeSnippets(chalk) {
-  const snippetsDir = path.join(currentProject || '.', 'snippets');
+async function generateTestCases(filePath, chalk, model) {
   try {
-    const files = await fs.readdir(snippetsDir);
-    console.log(chalk.cyan('Saved code snippets:'));
-    files.forEach(file => console.log(chalk.cyan(`- ${path.parse(file).name}`)));
+    const fileContent = await fs.readFile(filePath, 'utf-8');
+    const fileExtension = path.extname(filePath).slice(1);
+    console.log(chalk.yellow(`Generating test cases for ${filePath}...`));
+
+    const prompt = `
+      Analyze the following ${fileExtension} code and generate comprehensive test cases:
+
+      \`\`\`${fileExtension}
+      ${fileContent}
+      \`\`\`
+
+      Generate test cases that cover:
+      1. Normal operation scenarios
+      2. Edge cases
+      3. Error handling
+      4. Performance benchmarks
+
+      Provide the test cases using a testing framework appropriate for ${fileExtension}.
+      Use the following format:
+
+      \`\`\`file:${path.basename(filePath, path.extname(filePath))}.test.${fileExtension}
+      // Test cases here
+      \`\`\`
+    `;
+
+    const result = await model.generateContent(prompt);
+    const testCases = result.response.text();
+
+    await processAIResponse(testCases, chalk);
+
+    console.log(chalk.green(`Test cases generated for ${filePath}.`));
   } catch (error) {
-    console.log(chalk.yellow('No saved snippets found.'));
+    console.error(chalk.red(`Error generating test cases for ${filePath}:`, error.message));
   }
 }
 
-async function runTests(testCommand, chalk) {
+async function runSecurity(chalk) {
   if (!currentProject) {
     console.log(chalk.yellow("No active project. Create a project first."));
     return;
   }
-  console.log(chalk.cyan(`Running tests: ${testCommand}`));
+  console.log(chalk.cyan('Running security audit...'));
   try {
-    const { stdout, stderr } = await execPromise(testCommand);
-    console.log(chalk.green('Test results:'));
+    const { stdout, stderr } = await execPromise('npm audit');
+    console.log(chalk.green('Security audit results:'));
     console.log(stdout);
     if (stderr) console.error(chalk.red('Errors:'), stderr);
+
+    // Run additional security checks
+    await execPromise('npm install -g snyk');
+    const { stdout: snykOutput } = await execPromise('snyk test');
+    console.log(chalk.green('Snyk security test results:'));
+    console.log(snykOutput);
   } catch (error) {
-    console.error(chalk.red('Error running tests:'), error.message);
+    console.error(chalk.red('Error running security audit:'), error.message);
+  }
+}
+
+async function deployProject(platform, chalk) {
+  if (!currentProject) {
+    console.log(chalk.yellow("No active project. Create a project first."));
+    return;
+  }
+  console.log(chalk.cyan(`Deploying project to ${platform}...`));
+  try {
+    switch (platform.toLowerCase()) {
+      case 'heroku':
+        await execPromise('heroku create');
+        await execPromise('git push heroku main');
+        console.log(chalk.green('Project deployed to Heroku.'));
+        break;
+      case 'netlify':
+        await execPromise('npx netlify-cli deploy');
+        console.log(chalk.green('Project deployed to Netlify.'));
+        break;
+      // Add more deployment platforms as needed
+      default:
+        console.log(chalk.yellow(`Unsupported deployment platform: ${platform}`));
+    }
+  } catch (error) {
+    console.error(chalk.red(`Error deploying to ${platform}:`), error.message);
   }
 }
 
@@ -702,8 +633,21 @@ This will allow me to automatically create the files or folders based on your su
       continue;
     }
 
+    if (userInput.toLowerCase().startsWith('::active')) {
+      const filePath = userInput.split(' ')[1];
+      if (!filePath) {
+        console.log(chalk.yellow("Please provide a file path. Usage: ::active <file_path>"));
+        continue;
+      }
+      advancedRealTimeCodeSession(filePath, chalk, model)
+        .catch(error => console.error('Session error:', error));
+      continue;
+    }
+
     if (userInput.toLowerCase() === 'help') {
       console.log(chalk.cyan('Available commands:'));
+      console.log(chalk.cyan('- ask <content>: Perform a result from AI'));
+      console.log(chalk.cyan('- ::active <filepath>: Perform a Real-Time Coding Session With Ai'));
       console.log(chalk.cyan('- ::upgrade: Upgrade and improve all functions in this script'));
       console.log(chalk.cyan('- project:create <name>: Create a new project'));
       console.log(chalk.cyan('- project:install <dependency>: Install a dependency'));
@@ -718,7 +662,6 @@ This will allow me to automatically create the files or folders based on your su
       console.log(chalk.cyan('- snippet:save <name>: Save a code snippet'));
       console.log(chalk.cyan('- snippet:list: List saved code snippets'));
       console.log(chalk.cyan('- test:run <command>: Run tests'));
-      console.log(chalk.cyan('- exit: Quit the program'));
       console.log(chalk.cyan('- file:upgrade <path>: Upgrade and improve a file using AI'));
       console.log(chalk.cyan('- folder:upgrade <path>: Upgrade and improve all files in a folder using AI'));
       console.log(chalk.cyan('- project:analyze-deps: Analyze project dependencies'));
@@ -726,9 +669,15 @@ This will allow me to automatically create the files or folders based on your su
       console.log(chalk.cyan('- project:profile <file>: Profile performance of a file'));
       console.log(chalk.cyan('- project:generate-docs: Generate API documentation'));
       console.log(chalk.cyan('- file:review <path>: Perform automated code review'));
+      console.log(chalk.cyan('- file:optimize <path>: Optimize file performance'));
+      console.log(chalk.cyan('- file:generate-tests <path>: Generate test cases for a file'));
+      console.log(chalk.cyan('- file:document-this <path>: Generate Documentation for a file'));
+      console.log(chalk.cyan('- project:security: Run security audit'));
+      console.log(chalk.cyan('- project:deploy <platform>: Deploy project to specified platform'));
       console.log(chalk.cyan('- exit: Quit the program'));
       continue;
     }
+
     if (userInput.startsWith('project:')) {
       const [command, ...args] = userInput.slice(8).split(' ');
 
@@ -784,6 +733,18 @@ This will allow me to automatically create the files or folders based on your su
             break;
           case 'review':
             await automatedCodeReview(args[0], chalk, model);
+            break;
+          case 'optimize':
+            await optimizePerformance(args[0], chalk, model);
+            break;
+          case 'document-this':
+            await generateDocumentation(args[0], chalk, model);
+            break;
+          case 'generate-tests':
+            await generateTestCases(args[0], chalk, model);
+            break;
+          case 'ask':
+            await askAi(args[0], chalk, model);
             break;
           default:
             console.log(chalk.yellow("Invalid file operation."));
