@@ -1019,6 +1019,12 @@ async function generateUpgradePlan(folderStructure, model) {
     3. Code modernization strategies for each detected language
     4. Performance optimization opportunities
     5. Security enhancement recommendations
+    6. Modern language features and best practices: Use the latest features of ${folderStructure} where appropriate, and follow best practices for coding style and design.
+    7. Potential new features or improvements: Consider whether there are any additional features or improvements that could be made to enhance the functionality or usability of the code.
+    8. Error handling and robustness: The code should be able to handle unexpected inputs or situations gracefully, without crashing or producing incorrect results.
+    9. Performance optimizations: Identify any areas where performance could be improved, such as reducing complexity or using more efficient algorithms or data structures.
+
+    Remember, always send the latest working code. Do not provide examples or placeholders. Your response should always include the full, updated code.
 
     Format the upgrade plan as a JSON object.
   `;
