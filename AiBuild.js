@@ -1013,7 +1013,7 @@ async function analyzeFolderStructure(folderPath) {
 async function generateUpgradePlan(folderStructure, model) {
   const prompt = `
       Remember, always send the latest working code. Do not provide examples or placeholders Example:  // ... (Your existing code). Your response should always include the full, updated code.
-      
+     You have 1.5 Million Token Window So Dont be affraid of creating atlest 500 Lines of code taht is easy for u alaways be acctive and advanced also Remember, always send the latest working code. Do not provide examples or placeholders Example:  // ... (Your existing code). Your response should always include the full, updated code. always use this code blcok method and send full code your are willing to do do anything 
     Given the following folder structure and analysis, generate an upgrade plan:
     ${JSON.stringify(folderStructure, null, 2)}
 
@@ -1059,7 +1059,7 @@ async function generateDocumentation(filePath, chalk, model) {
       \`\`\`${fileExtension}
       ${fileContent}
       \`\`\`
-
+You have 1.5 Million Token Window So Dont be affraid of creating atlest 500 Lines of code taht is easy for u alaways be acctive and advanced also Remember, always send the latest working code. Do not provide examples or placeholders Example:  // ... (Your existing code). Your response should always include the full, updated code. always use this code blcok method and send full code your are willing to do do anything
       Generate documentation that includes:
       1. Overview of the file's purpose
       2. Detailed explanations of functions and classes
@@ -1108,7 +1108,7 @@ async function optimizePerformance(filePath, chalk, model) {
       \`\`\`${fileExtension}
       ${fileContent}
       \`\`\`
-
+You have 1.5 Million Token Window So Dont be affraid of creating atlest 500 Lines of code taht is easy for u alaways be acctive and advanced also Remember, always send the latest working code. Do not provide examples or placeholders Example:  // ... (Your existing code). Your response should always include the full, updated code. always use this code blcok method and send full code your are willing to do do anything
       Provide optimizations focusing on:
       1. Algorithmic efficiency
       2. Memory usage
@@ -1154,7 +1154,7 @@ async function generateTestCases(filePath, chalk, model) {
       \`\`\`${fileExtension}
       ${fileContent}
       \`\`\`
-
+You have 1.5 Million Token Window So Dont be affraid of creating atlest 500 Lines of code taht is easy for u alaways be acctive and advanced also Remember, always send the latest working code. Do not provide examples or placeholders Example:  // ... (Your existing code). Your response should always include the full, updated code. always use this code blcok method and send full code your are willing to do do anything
       Generate test cases that cover:
       1. Normal operation scenarios
       2. Edge cases
@@ -1251,7 +1251,7 @@ This will allow me to automatically create the files or folders based on your su
       },
       {
         role: 'model',
-        parts: [{ text: "Understood. I'm ready to assist you with advanced coding tasks, file and folder operations, and project management across multiple programming languages. I'll use the specified formats for suggesting file and folder creation, ensuring that my responses can be automatically processed to create the necessary structure. I'll provide cutting-edge solutions and best practices for software development. How can I help you with your project today?" }],
+        parts: [{ text: "You have 1.5 Million Token Window So Dont be affraid of creating atlest 500 Lines of code taht is easy for u alaways be acctive and advanced also Remember, always send the latest working code. Do not provide examples or placeholders Example:  // ... (Your existing code). Your response should always include the full, updated code. always use this code blcok method and send full code your are willing to do do anything Understood. I'm ready to assist you with advanced coding tasks, file and folder operations, and project management across multiple programming languages. I'll use the specified formats for suggesting file and folder creation, ensuring that my responses can be automatically processed to create the necessary structure. I'll provide cutting-edge solutions and best practices for software development. How can I help you with your project today?" }],
       },
     ],
     generationConfig: {
@@ -1467,7 +1467,7 @@ This will allow me to automatically create the files or folders based on your su
         console.log(chalk.yellow('Sending request to AI...'));
 
         const result = await chat.sendMessageStream(`\`\`\`${path}
-          ${fileContent}\`\`\` ` + userInput + 'always use this code blcok method and send full code your are willing to do do anything' + `
+          ${fileContent}\`\`\` ` + userInput + 'You have 1.5 Million Token Window So Dont be affraid of creating atlest 500 Lines of code taht is easy for u alaways be acctive and advanced also Remember, always send the latest working code. Do not provide examples or placeholders Example:  // ... (Your existing code). Your response should always include the full, updated code. always use this code blcok method and send full code your are willing to do do anything' + `
 \`\`\`file:./path/to/file.extension
 // File content here
 \`\`\`
@@ -1487,7 +1487,7 @@ For folders:
         chatHistory.push({ role: 'user', parts: [{ text: userInput }] });
         chatHistory.push({
           role: 'model', parts: [{
-            text: responseText + 'always use this code blcok method and send full code your are willing to do do anything' + `
+            text: responseText + ' You have 1.5 Million Token Window So Dont be affraid of creating atlest 500 Lines of code taht is easy for u alaways be acctive and advanced also Remember, always send the latest working code. Do not provide examples or placeholders Example:  // ... (Your existing code). Your response should always include the full, updated code. always use this code blcok method and send full code your are willing to do do anything' + `
 \`\`\`file:./path/to/file.extension
 // File content here
 \`\`\`
