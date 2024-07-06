@@ -633,6 +633,7 @@ This will allow me to automatically create the files or folders based on your su
       continue;
     }
 
+
     if (userInput.toLowerCase().startsWith('::active')) {
       const filePath = userInput.split(' ')[1];
       if (!filePath) {
@@ -743,9 +744,6 @@ This will allow me to automatically create the files or folders based on your su
           case 'generate-tests':
             await generateTestCases(args[0], chalk, model);
             break;
-          case 'ask':
-            await askAi(args[0], chalk, model);
-            break;
           default:
             console.log(chalk.yellow("Invalid file operation."));
         }
@@ -808,7 +806,8 @@ This will allow me to automatically create the files or folders based on your su
           responseText += chunkText;
         }
         console.log('\n');
-        await processAIResponse(responseText, chalk);
+        await processFileCreation(responseText, chalk)
+       // await processAIResponse(responseText, chalk);
         chatHistory.push({ role: 'user', parts: [{ text: userInput }] });
         chatHistory.push({ role: 'model', parts: [{ text: responseText }] });
       } catch (error) {
@@ -817,5 +816,54 @@ This will allow me to automatically create the files or folders based on your su
     }
   }
 }
+
+async function processFileCreation(response, chalk) {
+  const lines = response.split('\n');
+  let currentFilePath = null;
+  let currentFileContent = [];
+  
+  for (const line of lines) {
+    if (line.startsWith('```folder:')) {
+      const folderPath = line.split(':')[1].trim();
+      await createFolder(folderPath, chalk);
+    } else if (line.startsWith('```file:')) {
+      if (currentFilePath) {
+        await writeFile(currentFilePath, currentFileContent.join('\n'), chalk);
+      }
+      currentFilePath = line.split(':')[1].trim();
+      currentFileContent = [];
+    } else if (line === '```' && currentFilePath) {
+      await writeFile(currentFilePath, currentFileContent.join('\n'), chalk);
+      currentFilePath = null;
+      currentFileContent = [];
+    } else if (currentFilePath) {
+      currentFileContent.push(line);
+    }
+  }
+
+  if (currentFilePath) {
+    await writeFile(currentFilePath, currentFileContent.join('\n'), chalk);
+  }
+}
+
+async function createFolder(folderPath, chalk) {
+  try {
+    await fs.mkdir(folderPath, { recursive: true });
+    console.log(chalk.green(`Created folder: ${folderPath}`));
+  } catch (error) {
+    console.error(chalk.red(`Error creating folder ${folderPath}:`, error.message));
+  }
+}
+
+async function writeFile(filePath, content, chalk) {
+  try {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, content);
+    console.log(chalk.green(`Created/Updated file: ${filePath}`));
+  } catch (error) {
+    console.error(chalk.red(`Error writing file ${filePath}:`, error.message));
+  }
+}
+
 
 run().catch(error => console.error('Fatal error:', error.message));
