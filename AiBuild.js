@@ -1445,16 +1445,18 @@ This will allow me to automatically create the files or folders based on your su
     } else {
       try {
         let fileContent;
-        const fileMatch = userInput.match(/readfile:(\S+)/);
+        let path;
+        const fileMatch = userInput.match(/readfile:([^\s]+)/);
         if (fileMatch) {
-          const fileName = fileMatch[1];
-          console.log(chalk.yellow(`Reading file: ${fileName}`));
+          const filePath = fileMatch[1];
+          path = fileMatch[1]
+          console.log(chalk.yellow(`Reading file: ${filePath}`));
           try {
             // Check if the file exists
-            await fs.access(fileName);
+            await fs.access(filePath);
             // Read the file content
-            fileContent = await fs.readFile(fileName, 'utf-8');
-            console.log(chalk.green(`File content: ${fileContent}`));
+            fileContent = await fs.readFile(filePath, 'utf-8');
+            console.log(chalk.green(`File content:${fileContent}`));
           } catch (error) {
             console.error(chalk.red(`Error reading file: ${error.message}`));
           }
@@ -1464,7 +1466,7 @@ This will allow me to automatically create the files or folders based on your su
 
         console.log(chalk.yellow('Sending request to AI...'));
 
-        const result = await chat.sendMessageStream(`\`\`\`Code
+        const result = await chat.sendMessageStream(`\`\`\`${path}
           ${fileContent}\`\`\` ` + userInput + 'always use this code blcok method and send full code your are willing to do do anything' + `
 \`\`\`file:./path/to/file.extension
 // File content here
