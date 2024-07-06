@@ -806,7 +806,7 @@ async function runTests(testCommand, chalk) {
 async function upgradeFile(filePath, chalk, model, fileType, upgradePlan) {
   console.log(chalk.yellow(`Upgrading file: ${filePath}`));
   const originalContent = await fs.readFile(filePath, 'utf-8');
-  
+
   const upgradePrompt = `
     Upgrade the following ${fileType} code according to the upgrade plan:
     Upgrade Plan: ${JSON.stringify(upgradePlan, null, 2)}
@@ -827,7 +827,7 @@ async function upgradeFile(filePath, chalk, model, fileType, upgradePlan) {
 
       const codeBlockRegex = /```[\s\S]*?\n([\s\S]*?)```/;
       const match = aiResponse.match(codeBlockRegex);
-      
+
       if (match) {
         const upgradedCode = match[1].trim();
         await fs.writeFile(filePath, upgradedCode);
@@ -882,7 +882,7 @@ function isUpgradableFile(fileType) {
 function diffSummary(originalContent, upgradedContent) {
   const changes = diff.diffLines(originalContent, upgradedContent);
   let added = 0, removed = 0, changed = 0;
-  
+
   changes.forEach((part) => {
     if (part.added) added += part.count;
     else if (part.removed) removed += part.count;
@@ -994,7 +994,7 @@ async function analyzeFolderStructure(folderPath) {
       const fileType = getFileType(entry.name);
       structure.files.push({ name: entry.name, type: fileType });
       structure.languages.add(fileType);
-      
+
       if (entry.name === 'package.json') {
         const packageJson = JSON.parse(await fs.readFile(path.join(folderPath, entry.name), 'utf-8'));
         Object.keys(packageJson.dependencies || {}).forEach(dep => structure.dependencies.add(dep));
@@ -1010,6 +1010,8 @@ async function analyzeFolderStructure(folderPath) {
 
 async function generateUpgradePlan(folderStructure, model) {
   const prompt = `
+      Remember, always send the latest working code. Do not provide examples or placeholders Example:  // ... (Your existing code). Your response should always include the full, updated code.
+      
     Given the following folder structure and analysis, generate an upgrade plan:
     ${JSON.stringify(folderStructure, null, 2)}
 
@@ -1023,8 +1025,6 @@ async function generateUpgradePlan(folderStructure, model) {
     7. Potential new features or improvements: Consider whether there are any additional features or improvements that could be made to enhance the functionality or usability of the code.
     8. Error handling and robustness: The code should be able to handle unexpected inputs or situations gracefully, without crashing or producing incorrect results.
     9. Performance optimizations: Identify any areas where performance could be improved, such as reducing complexity or using more efficient algorithms or data structures.
-
-    Remember, always send the latest working code. Do not provide examples or placeholders. Your response should always include the full, updated code.
 
     Format the upgrade plan as a JSON object.
   `;
