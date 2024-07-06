@@ -4,6 +4,16 @@ const fs = require('fs').promises;
 const path = require('path');
 const readline = require('readline');
 const { exec } = require('child_process');
+const diff = require('diff');
+
+// Language-specific parsers
+const babelParser = require('@babel/parser');
+const babelTraverse = require('@babel/traverse').default;
+const babelGenerate = require('@babel/generator').default;
+const typescript = require('typescript');
+const pythonParser = require('tree-sitter-python');
+const Parser = require('tree-sitter');
+
 const util = require('util');
 const execPromise = util.promisify(exec);
 const {
@@ -52,7 +62,7 @@ async function createFileOrFolder(path, content = null, chalk) {
   }
 }
 
-async function processAIResponse(response, chalk) {
+async function processAIResponse(response, chalk, originalFilePath) {
   const fileCreationRegex = /```file:(.+?)\n([\s\S]*?)```/g;
   const folderCreationRegex = /```folder:(.+?)```/g;
   let match;
@@ -61,7 +71,15 @@ async function processAIResponse(response, chalk) {
     while ((match = fileCreationRegex.exec(response)) !== null) {
       const filePath = match[1].trim();
       const fileContent = match[2].trim();
-      await createFileOrFolder(filePath, fileContent, chalk);
+
+      if (filePath === originalFilePath) {
+        // Update the original file
+        await fs.writeFile(filePath, fileContent, 'utf-8');
+        console.log(chalk.green(`Updated file: ${filePath}`));
+      } else {
+        // Create a new file
+        await createFileOrFolder(filePath, fileContent, chalk);
+      }
     }
 
     while ((match = folderCreationRegex.exec(response)) !== null) {
@@ -130,7 +148,7 @@ async function upgradeSelf(chalk, model) {
     return;
   }
 
-  const functionRegex = /(?:async\s+)?function\s+(\w+)\s*\([^)]*\)\s*{[\s\S]*?}/g;
+  const functionRegex = /(?:async\s+)?function\s+(\w+)\s*\([^)]*\)\s*{(?:[^{}]*|\{(?:[^{}]*|\{[^{}]*\})*\})*\}/g;
   let upgradedContent = fileContent;
   const upgradedFunctions = [];
   console.log(chalk.cyan('Starting advanced self-upgrade process...'));
@@ -155,7 +173,13 @@ async function upgradeSelf(chalk, model) {
     console.log(chalk.yellow(`Found function: ${functionName}`));
     try {
       const { upgradedFunction, explanation } = await upgradeFunction(functionName, functionCode, model, upgradedFunctions, chalk);
-      upgradedContent = upgradedContent.replace(functionCode, upgradedFunction);
+
+      // Use a more precise replacement method
+      upgradedContent = upgradedContent.replace(
+        new RegExp(`(^|\\n)${escapeRegExp(functionCode)}($|\\n)`, 'g'),
+        `$1${upgradedFunction}$2`
+      );
+
       upgradedFunctions.push({ name: functionName, code: upgradedFunction });
       console.log(chalk.green(`Function ${functionName} upgraded successfully.`));
       console.log(chalk.blue('Improvements:'));
@@ -211,7 +235,7 @@ function restartProgram() {
 async function updateDependencies(chalk) {
   console.log(chalk.cyan('Checking for dependency updates...'));
   try {
-    const { stdout } = await exec('npm outdated --json');
+    const { stdout } = await execAsync('npm outdated --json');
     let outdatedDeps;
     try {
       outdatedDeps = JSON.parse(stdout);
@@ -222,7 +246,7 @@ async function updateDependencies(chalk) {
     }
     if (Object.keys(outdatedDeps).length > 0) {
       console.log(chalk.yellow('Updating dependencies...'));
-      const { stdout: updateStdout, stderr: updateStderr } = await exec('npm update');
+      const { stdout: updateStdout, stderr: updateStderr } = await execAsync('npm update');
       console.log(chalk.green('Dependencies updated successfully.'));
       console.log(chalk.blue('Update details:'), updateStdout);
       if (updateStderr) console.log(chalk.yellow('Update warnings:'), updateStderr);
@@ -235,6 +259,7 @@ async function updateDependencies(chalk) {
     if (error.stderr) console.log(chalk.yellow('Command errors:'), error.stderr);
   }
 }
+
 
 async function validateFunction(functionCode, chalk) {
   try {
@@ -254,16 +279,20 @@ async function addNewFeatures(content, model, chalk) {
     ${content}
     Provide suggestions in the following format:
     1. [Feature Name]: [Brief description]
-    [Code block with implementation]
+    \`\`\`javascript
+    // Implementation
+    \`\`\`
     2. [Feature Name]: [Brief description]
-    [Code block with implementation]
+    \`\`\`javascript
+    // Implementation
+    \`\`\`
     ...
   `;
   const result = await model.generateContent(prompt);
   const suggestions = result.response.text();
   console.log(chalk.yellow('AI Suggestions for new features:'));
   console.log(suggestions);
-  
+
   const shouldAdd = await question(chalk.yellow('Do you want to add these new features? (y/n) '), chalk);
   if (shouldAdd.toLowerCase() === 'y') {
     const featureRegex = /\d+\.\s+\[(.+?)\]:[^\n]+\n```(?:javascript|js)?\s*([\s\S]*?)```/g;
@@ -275,6 +304,38 @@ async function addNewFeatures(content, model, chalk) {
     console.log(chalk.green('New features added successfully.'));
   }
   return content;
+}
+
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function runTests(chalk) {
+  console.log(chalk.cyan('Running tests...'));
+  try {
+    const { stdout, stderr } = await execAsync('npm test');
+    console.log(chalk.green('Tests completed successfully.'));
+    console.log(chalk.blue('Test output:'), stdout);
+    if (stderr) console.log(chalk.yellow('Test warnings:'), stderr);
+  } catch (error) {
+    console.error(chalk.red('Error running tests:', error.message));
+    if (error.stdout) console.log(chalk.yellow('Test output:'), error.stdout);
+    if (error.stderr) console.log(chalk.yellow('Test errors:'), error.stderr);
+  }
+}
+
+async function question(query, chalk) {
+  const readline = require('readline').createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    readline.question(query, (answer) => {
+      readline.close();
+      resolve(answer);
+    });
+  });
 }
 
 
@@ -367,14 +428,38 @@ async function runCommand(command, chalk) {
   }
 }
 
-async function searchFiles(keyword, chalk) {
+// Improved searchFiles function with advanced options and error handling
+async function searchFiles(keyword, options = {}, chalk) {
+  const { caseSensitive = false, fileType = null, recursive = false, maxDepth = Infinity } = options;
+  const searchDir = async (dir, depth = 0) => {
+    if (depth > maxDepth) return [];
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      let results = [];
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory() && recursive) {
+          results = results.concat(await searchDir(fullPath, depth + 1));
+        } else if (entry.isFile()) {
+          if (fileType && !entry.name.endsWith(`.${fileType}`)) continue;
+          const match = caseSensitive ? entry.name.includes(keyword) : entry.name.toLowerCase().includes(keyword.toLowerCase());
+          if (match) results.push(fullPath);
+        }
+      }
+      return results;
+    } catch (error) {
+      console.error(chalk.red(`Error searching in directory ${dir}:`, error.message));
+      return [];
+    }
+  };
+
   try {
-    const files = await fs.readdir('.');
-    const matchingFiles = files.filter(file => file.includes(keyword));
+    const matchingFiles = await searchDir('.');
     console.log(chalk.cyan(`Files matching '${keyword}':`));
     matchingFiles.forEach(file => console.log(chalk.cyan(file)));
+    return matchingFiles;
   } catch (error) {
-    console.error(chalk.red("Error searching files:", error.message));
+    throw new Error(`Error searching files: ${error.message}`);
   }
 }
 
@@ -411,27 +496,293 @@ async function gitOperations(operation, args, chalk) {
   }
 }
 
-async function saveCodeSnippet(name, content, chalk) {
+// Improved saveCodeSnippet with tagging and versioning
+async function saveCodeSnippet(name, content, tags, chalk) {
   try {
     const snippetsDir = path.join(currentProject || '.', 'snippets');
     await fs.mkdir(snippetsDir, { recursive: true });
-    const filePath = path.join(snippetsDir, `${name}.js`);
-    await fs.writeFile(filePath, content);
-    console.log(chalk.green(`Snippet '${name}' saved to ${filePath}`));
+    const snippetFile = path.join(snippetsDir, `${name}.json`);
+    let snippet = { versions: [] };
+
+    if (await fs.access(snippetFile).then(() => true).catch(() => false)) {
+      snippet = JSON.parse(await fs.readFile(snippetFile, 'utf-8'));
+    }
+
+    const newVersion = {
+      content,
+      tags,
+      timestamp: new Date().toISOString(),
+      version: snippet.versions.length + 1
+    };
+
+    snippet.versions.unshift(newVersion);
+    await fs.writeFile(snippetFile, JSON.stringify(snippet, null, 2));
+    console.log(chalk.green(`Snippet '${name}' saved (version ${newVersion.version})`));
   } catch (error) {
-    console.error(chalk.red("Error saving code snippet:", error.message));
+    throw new Error(`Error saving code snippet: ${error.message}`);
   }
 }
 
-async function listCodeSnippets(chalk) {
+// Improved listCodeSnippets with filtering by tags and version history
+async function listCodeSnippets(options = {}, chalk) {
+  const { tag, showVersions = false } = options;
   try {
     const snippetsDir = path.join(currentProject || '.', 'snippets');
     const files = await fs.readdir(snippetsDir);
     console.log(chalk.cyan('Saved code snippets:'));
-    files.forEach(file => console.log(chalk.cyan(`- ${path.parse(file).name}`)));
+    for (const file of files) {
+      const snippetContent = JSON.parse(await fs.readFile(path.join(snippetsDir, file), 'utf-8'));
+      const latestVersion = snippetContent.versions[0];
+      if (!tag || latestVersion.tags.includes(tag)) {
+        console.log(chalk.cyan(`- ${path.parse(file).name} (Tags: ${latestVersion.tags.join(', ')})`));
+        if (showVersions) {
+          snippetContent.versions.forEach((version, index) => {
+            console.log(chalk.gray(`  Version ${version.version}: ${new Date(version.timestamp).toLocaleString()}`));
+          });
+        }
+      }
+    }
   } catch (error) {
     console.log(chalk.yellow('No saved snippets found or error occurred:', error.message));
   }
+}
+
+async function advancedInteractiveCodeReview(filePath, chalk, model) {
+  try {
+    const fileContent = await fs.readFile(filePath, 'utf-8');
+    const fileExtension = path.extname(filePath).toLowerCase();
+    console.log(chalk.yellow(`Starting advanced interactive code review for ${filePath}`));
+
+    let updatedContent;
+    try {
+      switch (fileExtension) {
+        case '.js':
+        case '.jsx':
+        case '.ts':
+        case '.tsx':
+          updatedContent = await reviewJavaScriptTypescript(fileContent, filePath, chalk, model, fileExtension);
+          break;
+        case '.py':
+          updatedContent = await reviewPython(fileContent, filePath, chalk, model);
+          break;
+        default:
+          updatedContent = await reviewGeneric(fileContent, filePath, chalk, model);
+      }
+    } catch (parseError) {
+      console.error(chalk.red(`Error parsing file: ${parseError.message}`));
+      console.log(chalk.yellow('Falling back to generic line-by-line review.'));
+      updatedContent = await reviewGeneric(fileContent, filePath, chalk, model);
+    }
+
+    // Show diff and ask for confirmation
+    console.log(chalk.cyan('\nReview Changes:'));
+    const changes = diff.diffLines(fileContent, updatedContent);
+    changes.forEach((part) => {
+      const color = part.added ? chalk.green : part.removed ? chalk.red : chalk.grey;
+      process.stdout.write(color(part.value));
+    });
+
+    const confirmChanges = await question('\nApply these changes? (y/n): ', chalk);
+    if (confirmChanges.toLowerCase() === 'y') {
+      await fs.writeFile(filePath, updatedContent);
+      console.log(chalk.green(`Advanced interactive code review completed for ${filePath}`));
+    } else {
+      console.log(chalk.yellow('Changes discarded.'));
+    }
+  } catch (error) {
+    console.error(chalk.red(`Error during advanced interactive code review: ${error.message}`));
+  }
+}
+
+async function reviewJavaScriptTypescript(fileContent, filePath, chalk, model, fileExtension) {
+  const isTypescript = ['.ts', '.tsx'].includes(fileExtension);
+  let ast;
+  try {
+    ast = babelParser.parse(fileContent, {
+      sourceType: 'module',
+      plugins: ['jsx', ...(isTypescript ? ['typescript'] : [])],
+    });
+  } catch (parseError) {
+    console.error(chalk.red(`Error parsing ${isTypescript ? 'TypeScript' : 'JavaScript'} file: ${parseError.message}`));
+    throw parseError;
+  }
+
+  const functions = [];
+  babelTraverse(ast, {
+    FunctionDeclaration(path) {
+      functions.push(path);
+    },
+    ArrowFunctionExpression(path) {
+      if (path.parent.type === 'VariableDeclarator') {
+        functions.push(path);
+      }
+    },
+    ClassMethod(path) {
+      functions.push(path);
+    },
+  });
+
+  for (const functionPath of functions) {
+    const functionCode = babelGenerate(functionPath.node).code;
+    console.log(chalk.cyan('\nReviewing function:'));
+    console.log(chalk.white(functionCode));
+
+    const suggestion = await getAISuggestion(functionCode, filePath, model);
+    console.log(chalk.yellow('AI Suggestion:'), suggestion);
+
+    if (suggestion.toLowerCase() !== "no improvements needed") {
+      const userAction = await question('Apply this suggestion? (y/n/e/skip): ', chalk);
+      if (userAction.toLowerCase() === 'y') {
+        const improvedCode = await getAIImprovement(functionCode, suggestion, model);
+        try {
+          const improvedAst = babelParser.parse(improvedCode, {
+            sourceType: 'module',
+            plugins: ['jsx', ...(isTypescript ? ['typescript'] : [])],
+          });
+          functionPath.replaceWith(improvedAst.program.body[0]);
+          console.log(chalk.green('Function updated.'));
+        } catch (parseError) {
+          console.error(chalk.red(`Error parsing improved code: ${parseError.message}`));
+          console.log(chalk.yellow('Skipping this improvement.'));
+        }
+      } else if (userAction.toLowerCase() === 'e') {
+        const manualEdit = await question('Enter your manual edit (entire function): ', chalk);
+        try {
+          const manualAst = babelParser.parse(manualEdit, {
+            sourceType: 'module',
+            plugins: ['jsx', ...(isTypescript ? ['typescript'] : [])],
+          });
+          functionPath.replaceWith(manualAst.program.body[0]);
+          console.log(chalk.green('Function manually updated.'));
+        } catch (parseError) {
+          console.error(chalk.red(`Error parsing manual edit: ${parseError.message}`));
+          console.log(chalk.yellow('Skipping this manual edit.'));
+        }
+      } else if (userAction.toLowerCase() === 'skip') {
+        console.log(chalk.yellow('Skipping remaining functions.'));
+        break;
+      }
+    }
+  }
+
+  return babelGenerate(ast).code;
+}
+
+async function reviewPython(fileContent, filePath, chalk, model) {
+  const parser = new Parser();
+  parser.setLanguage(pythonParser);
+  const tree = parser.parse(fileContent);
+
+  const functions = [];
+  traverseTree(tree.rootNode, (node) => {
+    if (node.type === 'function_definition') {
+      functions.push(node);
+    }
+  });
+
+  let updatedContent = fileContent;
+  for (const functionNode of functions) {
+    const functionCode = fileContent.slice(functionNode.startIndex, functionNode.endIndex);
+    console.log(chalk.cyan('\nReviewing function:'));
+    console.log(chalk.white(functionCode));
+
+    const suggestion = await getAISuggestion(functionCode, filePath, model);
+    console.log(chalk.yellow('AI Suggestion:'), suggestion);
+
+    if (suggestion.toLowerCase() !== "no improvements needed") {
+      const userAction = await question('Apply this suggestion? (y/n/e/skip): ', chalk);
+      if (userAction.toLowerCase() === 'y') {
+        const improvedCode = await getAIImprovement(functionCode, suggestion, model);
+        updatedContent = updatedContent.slice(0, functionNode.startIndex) + improvedCode + updatedContent.slice(functionNode.endIndex);
+        console.log(chalk.green('Function updated.'));
+      } else if (userAction.toLowerCase() === 'e') {
+        const manualEdit = await question('Enter your manual edit (entire function): ', chalk);
+        updatedContent = updatedContent.slice(0, functionNode.startIndex) + manualEdit + updatedContent.slice(functionNode.endIndex);
+        console.log(chalk.green('Function manually updated.'));
+      } else if (userAction.toLowerCase() === 'skip') {
+        console.log(chalk.yellow('Skipping remaining functions.'));
+        break;
+      }
+    }
+  }
+
+  return updatedContent;
+}
+
+async function reviewGeneric(fileContent, filePath, chalk, model) {
+  const lines = fileContent.split('\n');
+  const updatedLines = [...lines];
+
+  for (let i = 0; i < lines.length; i++) {
+    console.log(chalk.cyan(`Line ${i + 1}: ${lines[i]}`));
+    const suggestion = await getAISuggestion(lines[i], filePath, model, i + 1);
+    console.log(chalk.yellow('AI Suggestion:'), suggestion);
+
+    if (suggestion.toLowerCase() !== "no improvements needed") {
+      const userAction = await question('Apply this suggestion? (y/n/e/skip): ', chalk);
+      if (userAction.toLowerCase() === 'y') {
+        const improvedLine = await getAIImprovement(lines[i], suggestion, model);
+        updatedLines[i] = improvedLine.trim();
+        console.log(chalk.green('Line updated.'));
+      } else if (userAction.toLowerCase() === 'e') {
+        const manualEdit = await question('Enter your manual edit: ', chalk);
+        updatedLines[i] = manualEdit;
+        console.log(chalk.green('Line manually updated.'));
+      } else if (userAction.toLowerCase() === 'skip') {
+        console.log(chalk.yellow('Skipping remaining lines.'));
+        break;
+      }
+    }
+  }
+
+  return updatedLines.join('\n');
+}
+
+async function getAISuggestion(code, filePath, model, lineNumber = null) {
+  const prompt = lineNumber
+    ? `Analyze the following line of code and provide suggestions for improvement:
+       ${code}
+       Context: This is line ${lineNumber} of the file ${filePath}.
+       Provide a brief suggestion if improvements can be made, or say "No improvements needed" if the line is good as is.`
+    : `Analyze the following code and provide suggestions for improvement:
+       ${code}
+       Context: This code is from the file ${filePath}.
+       Provide a brief suggestion if improvements can be made, or say "No improvements needed" if the code is good as is.`;
+
+  const result = await model.generateContent(prompt);
+  return result.response.text();
+}
+
+async function getAIImprovement(code, suggestion, model) {
+  const prompt = `Given the original code:
+    ${code}
+    And the suggestion:
+    ${suggestion}
+    Provide an improved version of the code, implementing the suggestion.`;
+
+  const result = await model.generateContent(prompt);
+  return result.response.text().trim();
+}
+
+function traverseTree(node, callback) {
+  callback(node);
+  for (let i = 0; i < node.childCount; i++) {
+    traverseTree(node.child(i), callback);
+  }
+}
+
+async function question(prompt, chalk) {
+  const readline = require('readline').createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    readline.question(chalk.blue(prompt), (answer) => {
+      readline.close();
+      resolve(answer);
+    });
+  });
 }
 
 async function runTests(testCommand, chalk) {
@@ -457,33 +808,36 @@ async function upgradeFile(filePath, chalk, model) {
     console.log(chalk.yellow(`Sending ${filePath} content to AI for improvement...`));
 
     const prompt = `
-      Analyze and refactor the following ${fileExtension} code:
+Analyze and refactor the following ${fileExtension} code, providing an updated and improved implementation.
+Original ${fileExtension.toUpperCase()} Code:
+\`\`\`${fileExtension}
+${fileContent}
+\`\`\`
+Your task is to enhance this code to create a more efficient, maintainable, and feature-rich implementation. Please consider the following:
+1. Performance optimizations
+2. Code readability and organization
+3. Error handling and robustness
+4. Modern language features and best practices
+5. Potential new features or improvements
 
-      Original ${fileExtension.toUpperCase()} Code:
-      \`\`\`${fileExtension}
-      ${fileContent}
-      \`\`\`
+Provide the improved full code without any missing code within a code block using:
+\`\`\`file:${filePath}
+// Improved code here
+\`\`\`
+After the code block, provide a brief explanation of your changes and enhancements.
+`;
 
-      Enhance this code to create a more efficient, maintainable, and feature-rich implementation. Consider:
-      1. Performance optimizations
-      2. Code readability and organization
-      3. Error handling and robustness
-      4. Modern language features and best practices
-      5. Potential new features or improvements
+    const result = await model.generateContentStream(prompt);
+    let improvedCode = '';
+    for await (const chunk of result.stream) {
+      const chunkText = chunk.text();
+      process.stdout.write(chunkText);
+      improvedCode += chunkText;
+    }
+    console.log('\n');
 
-      Provide the improved full code without any missing code within a code block using:
-      \`\`\`file:${filePath}
-      // Improved code here
-      \`\`\`
-
-      After the code block, provide a brief explanation of your changes and enhancements.
-    `;
-
-    const result = await model.generateContent(prompt);
-    const improvedCode = result.response.text();
-
-    await processAIResponse(improvedCode, chalk);
-
+    // Process the AI response and update the file
+    await processAIResponse(improvedCode, chalk, filePath);
     console.log(chalk.green(`File ${filePath} has been upgraded.`));
 
     // Extract and log the explanation
@@ -701,7 +1055,7 @@ async function run() {
       {
         role: 'user',
         parts: [{
-          text: `You are an advanced AI coding assistant with expertise in multiple programming languages and software development practices. You can help with coding tasks, file operations, project management, and provide detailed explanations. When suggesting file or folder creation, please use the following formats:
+          text: `You Have 1.8Million Token So. You are an advanced AI coding assistant with expertise in multiple programming languages and software development practices. You can help with coding tasks, file operations, project management, and provide detailed explanations. When suggesting file or folder creation, please use the following formats:
 
 For files:
 \`\`\`file:./path/to/file.extension
@@ -779,6 +1133,7 @@ This will allow me to automatically create the files or folders based on your su
       console.log(chalk.cyan('- file:review <path>: Perform automated code review'));
       console.log(chalk.cyan('- file:optimize <path>: Optimize file performance'));
       console.log(chalk.cyan('- file:generate-tests <path>: Generate test cases for a file'));
+      console.log(chalk.cyan('- file:interactive-review <path>: Review Code function by function and Change Improvements Real Time!'));
       console.log(chalk.cyan('- file:document-this <path>: Generate Documentation for a file'));
       console.log(chalk.cyan('- project:security: Run security audit'));
       console.log(chalk.cyan('- project:deploy <platform>: Deploy project to specified platform'));
@@ -851,6 +1206,10 @@ This will allow me to automatically create the files or folders based on your su
           case 'generate-tests':
             await generateTestCases(args[0], chalk, model);
             break;
+          case 'interactive-review':
+            await advancedInteractiveCodeReview(args[0], chalk, model);
+            break;
+
           default:
             console.log(chalk.yellow("Invalid file operation."));
         }
@@ -914,9 +1273,9 @@ This will allow me to automatically create the files or folders based on your su
         }
         console.log('\n');
         await processFileCreation(responseText, chalk)
-       // await processAIResponse(responseText, chalk);
+        // await processAIResponse(responseText, chalk);
         chatHistory.push({ role: 'user', parts: [{ text: userInput }] });
-        chatHistory.push({ role: 'model', parts: [{ text: responseText }] });
+        chatHistory.push({ role: 'model', parts: [{ text: 'always use file creation method i said' + responseText }] });
       } catch (error) {
         console.error(chalk.red("Error communicating with AI:", error.message));
       }
@@ -928,7 +1287,7 @@ async function processFileCreation(response, chalk) {
   const lines = response.split('\n');
   let currentFilePath = null;
   let currentFileContent = [];
-  
+
   for (const line of lines) {
     if (line.startsWith('```folder:')) {
       const folderPath = line.split(':')[1].trim();
