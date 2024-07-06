@@ -822,6 +822,7 @@ async function upgradeFile(filePath, chalk, model, fileType, upgradePlan) {
   let retries = 3;
   while (retries > 0) {
     try {
+      await delay(5000)
       const result = await model.generateContent(upgradePrompt);
       const aiResponse = result.response.text();
 
@@ -844,6 +845,7 @@ async function upgradeFile(filePath, chalk, model, fileType, upgradePlan) {
       }
     } catch (error) {
       console.error(chalk.yellow(`Error upgrading file ${filePath}, retrying... (${retries} attempts left)`));
+      console.error(chalk.yellow(error));
       retries--;
       if (retries === 0) {
         console.error(chalk.red(`Failed to upgrade file ${filePath} after multiple attempts`));
