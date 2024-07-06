@@ -1445,7 +1445,14 @@ This will allow me to automatically create the files or folders based on your su
     } else {
       try {
         console.log(chalk.yellow('Sending request to AI...'));
-        const result = await chat.sendMessageStream(userInput);
+        const result = await chat.sendMessageStream(userInput + 'always use this code blcok method and send full code your are willing to do do anything' + `
+\`\`\`file:./path/to/file.extension
+// File content here
+\`\`\`
+
+For folders:
+\`\`\`folder:./path/to/folder
+\`\`\``);
         let responseText = '';
         for await (const chunk of result.stream) {
           const chunkText = chunk.text();
@@ -1456,7 +1463,7 @@ This will allow me to automatically create the files or folders based on your su
         await processFileCreation(responseText, chalk)
         // await processAIResponse(responseText, chalk);
         chatHistory.push({ role: 'user', parts: [{ text: userInput }] });
-        chatHistory.push({ role: 'model', parts: [{ text: responseText + 'alwys send full code your are willing to do do anything' + `
+        chatHistory.push({ role: 'model', parts: [{ text: responseText + 'always use this code blcok method and send full code your are willing to do do anything' + `
 \`\`\`file:./path/to/file.extension
 // File content here
 \`\`\`
