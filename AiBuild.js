@@ -811,8 +811,8 @@ async function upgradeFile(filePath, chalk, model, fileType, upgradePlan) {
     Upgrade the following ${fileType} code according to the upgrade plan:
     Upgrade Plan: ${JSON.stringify(upgradePlan, null, 2)}
 
-    Original ${fileType.toUpperCase()} Code:
-    \`\`\`${fileType}
+    Original ${filePath} Code:
+    \`\`\`${filePath}
     ${originalContent}
     \`\`\`
 
