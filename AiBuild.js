@@ -55,17 +55,21 @@ async function createFileOrFolder(path, content = null, chalk) {
 async function processAIResponse(response, chalk) {
   const fileCreationRegex = /```file:(.+?)\n([\s\S]*?)```/g;
   const folderCreationRegex = /```folder:(.+?)```/g;
-
   let match;
-  while ((match = fileCreationRegex.exec(response)) !== null) {
-    const filePath = match[1].trim();
-    const fileContent = match[2].trim();
-    await createFileOrFolder(filePath, fileContent, chalk);
-  }
 
-  while ((match = folderCreationRegex.exec(response)) !== null) {
-    const folderPath = match[1].trim();
-    await createFileOrFolder(folderPath, null, chalk);
+  try {
+    while ((match = fileCreationRegex.exec(response)) !== null) {
+      const filePath = match[1].trim();
+      const fileContent = match[2].trim();
+      await createFileOrFolder(filePath, fileContent, chalk);
+    }
+
+    while ((match = folderCreationRegex.exec(response)) !== null) {
+      const folderPath = match[1].trim();
+      await createFileOrFolder(folderPath, null, chalk);
+    }
+  } catch (error) {
+    console.error(chalk.red(`Error processing AI response: ${error.message}`));
   }
 }
 
@@ -170,24 +174,23 @@ async function upgradeSelf(chalk, model) {
   }
 }
 
-async function createOrUpdateFile(filePath, fileContent) {
+async function createFileOrFolder(pathString, content, chalk) {
   try {
-    const resolvedPath = path.resolve(filePath);
-    const fileExists = await fs.access(resolvedPath)
-      .then(() => true)
-      .catch(() => false);
+    const normalizedPath = path.normalize(pathString);
+    const dirname = path.dirname(normalizedPath);
 
-    if (fileExists) {
-      await fs.writeFile(resolvedPath, fileContent);
-      console.log(chalk.green(`File updated: ${resolvedPath}`));
+    if (content === null) {
+      // This is a folder
+      await fs.mkdir(normalizedPath, { recursive: true });
+      console.log(chalk.green(`Created folder: ${normalizedPath}`));
     } else {
-      const directoryPath = path.dirname(resolvedPath);
-      await fs.mkdir(directoryPath, { recursive: true });
-      await fs.writeFile(resolvedPath, fileContent);
-      console.log(chalk.green(`File created: ${resolvedPath}`));
+      // This is a file
+      await fs.mkdir(dirname, { recursive: true });
+      await fs.writeFile(normalizedPath, content);
+      console.log(chalk.green(`Created/Updated file: ${normalizedPath}`));
     }
   } catch (error) {
-    console.error(chalk.red(`Error creating or updating file ${filePath}:`, error.message));
+    console.error(chalk.red(`Error creating file/folder ${pathString}: ${error.message}`));
   }
 }
 
@@ -685,25 +688,25 @@ This will allow me to automatically create the files or folders based on your su
       try {
         switch (command) {
           case 'create':
-            await createProject(args[0], chalk);
+            await createProject(args[0], chalk, model);
             break;
           case 'install':
-            await installDependency(args.join(' '), chalk);
+            await installDependency(args.join(' '), chalk, model);
             break;
           case 'run':
-            await runCommand(args.join(' '), chalk);
+            await runCommand(args.join(' '), chalk, model);
             break;
           case 'analyze-deps':
-            await analyzeDependencies(chalk);
+            await analyzeDependencies(chalk, model);
             break;
           case 'check-quality':
-            await checkCodeQuality(chalk);
+            await checkCodeQuality(chalk, model);
             break;
           case 'profile':
-            await profilePerformance(args[0], chalk);
+            await profilePerformance(args[0], chalk, model);
             break;
           case 'generate-docs':
-            await generateAPIDocs(chalk);
+            await generateAPIDocs(chalk, model);
             break;
           default:
             console.log(chalk.yellow("Invalid project operation."));
