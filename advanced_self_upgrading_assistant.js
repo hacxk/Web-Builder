@@ -6,7 +6,19 @@ const path = require('path');
 const chokidar = require('chokidar');
 const { debounce, throttle } = require('lodash');
 const { promisify } = require('util');
+const readline = require('readline');
 const sleep = promisify(setTimeout);
+
+async function question(query, chalk) {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+  return new Promise(resolve => rl.question(chalk.bold(query), answer => {
+    rl.close();
+    resolve(answer);
+  }));
+}
 
 async function analyzeDependencies(chalk) {
   if (!currentProject) {
@@ -115,22 +127,71 @@ async function automatedCodeReview(filePath, chalk, model) {
 
 async function askAi(filePath, chalk, model) {
   try {
-    console.log(chalk.cyan(`Gemini is Loading.....`));
-
+    console.log(chalk.cyan(`AI model is loading...`));
     const prompt = `
       Always Be Active and 100% Confident EXPLAIN LIKE A BUTTER WHAT WE ASK
       ${filePath}
     `;
+    const result = await chat.sendMessageStream(userInput);
+    let responseText = '';
+    for await (const chunk of result.stream) {
+      const chunkText = chunk.text();
+      process.stdout.write(chunkText);
+      responseText += chunkText;
+    }
+    console.log('\n');
+    await processAIResponse(responseText, chalk);
+    chatHistory.push({ role: 'user', parts: [{ text: userInput }] });
+    chatHistory.push({ role: 'model', parts: [{ text: responseText }] });
+   
+    console.log(chalk.green("AI Result:"));
+    console.log(responseText);
 
-    const result = await model.generateContent(prompt);
-    const review = result.response.text();
+    // Process AI response for file/folder creation
+    await processFileCreation(responseText);
 
-    console.log(chalk.green("Gemini Result:"));
-    console.log(review);
   } catch (error) {
-    console.error(chalk.red("Error performing Gemini review:", error.message));
+    console.error(chalk.red("Error performing AI review:", error.message));
   }
 }
+
+async function processFileCreation(response) {
+  const lines = response.split('\n');
+  let currentFilePath = null;
+  let currentFileContent = [];
+
+  for (const line of lines) {
+    if (line.startsWith('```folder:')) {
+      const folderPath = line.split(':')[1].trim();
+      await fs.mkdir(folderPath, { recursive: true });
+      console.log(chalk.green(`Created folder: ${folderPath}`));
+    } else if (line.startsWith('```file:')) {
+      if (currentFilePath) {
+        await writeFile(currentFilePath, currentFileContent.join('\n'));
+      }
+      currentFilePath = line.split(':')[1].trim();
+      currentFileContent = [];
+    } else if (line === '```' && currentFilePath) {
+      await writeFile(currentFilePath, currentFileContent.join('\n'));
+      currentFilePath = null;
+      currentFileContent = [];
+    } else if (currentFilePath) {
+      currentFileContent.push(line);
+    }
+  }
+
+  // Write any remaining file content
+  if (currentFilePath) {
+    await writeFile(currentFilePath, currentFileContent.join('\n'));
+  }
+}
+
+async function writeFile(filePath, content) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, content);
+  console.log(chalk.green(`Created/Updated file: ${filePath}`));
+}
+
 
 
 async function advancedRealTimeCodeSession(filePath, chalk, model) {
@@ -193,7 +254,7 @@ const processLine = throttle(async (lineNumber, content, model, chalk, aiSuggest
   const contextStart = Math.max(0, lineNumber - 3);
   const contextEnd = Math.min(lines.length, lineNumber + 2);
   const contextLines = lines.slice(contextStart, contextEnd);
-  
+
   const prompt = `
     Analyze this JavaScript code snippet in the context of a larger file:
     
