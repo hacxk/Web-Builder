@@ -4,7 +4,7 @@ A Simple Node.js Application that Interacts with Gemini AI Using a Single API
 
 ## Overview
 
-**Web-Builder** is a straightforward Node.js application designed to interact with Gemini AI through a single API. This tool enables users to perform various AI-driven tasks effortlessly.
+**Web-Builder** is a straightforward Node.js application designed to interact with Gemini AI through a single API. This tool enables users to perform various AI-driven tasks effortlessly. Remeber that this is not accurate in file creation, ai responses, file write, code review, etc
 
 ## Getting Started
 
