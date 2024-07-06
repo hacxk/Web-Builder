@@ -13,6 +13,7 @@ Follow the steps below to set up and run the Web-Builder application.
 ### Prerequisites
 
 - Install [Node.js](https://nodejs.org/) from the official website.
+- Create a `.env` file in root folder and paste ```API_KEY=YOUR_GEMINI_API_KEY```
 
 ### Installation
 
