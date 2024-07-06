@@ -9,6 +9,7 @@
     "diff": "^5.2.0",
     "dotenv": "^16.4.5",
     "lodash": "^4.17.21",
+    "semver": "^7.6.2",
     "tree-sitter": "^0.21.1",
     "tree-sitter-python": "^0.21.0",
     "typescript": "^5.5.3"

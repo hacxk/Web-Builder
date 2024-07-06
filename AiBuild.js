@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } = require('@google/generative-ai');
 const fs = require('fs').promises;
 const path = require('path');
 const readline = require('readline');
@@ -25,6 +25,7 @@ const {
   askAi,
   advancedRealTimeCodeSession
 } = require('./advanced_self_upgrading_assistant');
+const UltraAdvancedWebGenerator = require('./UltraAdvancedWebGenerator');
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -1230,7 +1231,26 @@ async function deployProject(platform, chalk) {
 
 async function run() {
   chalk = await loadChalk();
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+  const safetySettings = [
+    {
+      category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+      threshold: HarmBlockThreshold.BLOCK_NONE,
+    },
+    {
+      category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+      threshold: HarmBlockThreshold.BLOCK_NONE,
+    },
+    {
+      category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+      threshold: HarmBlockThreshold.BLOCK_NONE,
+    },
+    {
+      category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+      threshold: HarmBlockThreshold.BLOCK_NONE,
+    },
+  ];
+
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro', safetySettings });
   const chat = model.startChat({
     history: [
       {
@@ -1275,6 +1295,18 @@ This will allow me to automatically create the files or folders based on your su
       continue;
     }
 
+    if (userInput.toLowerCase() === '::ultraadvancedwebgenerator') {
+      const filePath = userInput.split(' ')[1];
+      if (!filePath) {
+        console.log(chalk.yellow("Please provide a file path. Usage: ::ultraadvancedwebgenerator <file_path>"));
+        continue;
+      }
+      const generator = new UltraAdvancedWebGenerator('filePath');
+      const metrics = await generator.runFullEvolutionCycle();
+      console.log(chalk.bgBlueBright('Final Metrics:'), metrics);
+      continue;
+    }
+
 
     if (userInput.toLowerCase().startsWith('::active')) {
       const filePath = userInput.split(' ')[1];
@@ -1292,6 +1324,7 @@ This will allow me to automatically create the files or folders based on your su
       console.log(chalk.cyan('- ask <content>: Perform a result from AI'));
       console.log(chalk.cyan('- ::active <filepath>: Perform a Real-Time Coding Session With Ai'));
       console.log(chalk.cyan('- ::upgrade: Upgrade and improve all functions in this script'));
+      console.log(chalk.cyan('- ::active=UltraAdvancedWebGenerator: Create a full test on a build in website'));
       console.log(chalk.cyan('- project:create <name>: Create a new project'));
       console.log(chalk.cyan('- project:install <dependency>: Install a dependency'));
       console.log(chalk.cyan('- project:run <command>: Run a command in the project directory'));
