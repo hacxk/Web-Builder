@@ -12,7 +12,7 @@ class UltraAdvancedWebGenerator {
         this.basePath = basePath;
         this.version = '1.0.0';
         this.evolutionCycles = 0;
-        this.maxEvolutionCycles = 100;
+        this.maxEvolutionCycles = 1;
         this.aiModel = this.initializeAIModel();
         this.conversationHistory = [];
         this.performanceMetrics = {};
@@ -660,10 +660,10 @@ class UltraAdvancedWebGenerator {
 
 // module.exports = UltraAdvancedWebGenerator;
 
-async function main() {
-    const generator = new UltraAdvancedWebGenerator('./output');
-    const metrics = await generator.runFullEvolutionCycle();
-    console.log('Final Metrics:', metrics);
-  }
+// async function main() {
+//     const generator = new UltraAdvancedWebGenerator('./output');
+//     const metrics = await generator.runFullEvolutionCycle();
+//     console.log('Final Metrics:', metrics);
+//   }
   
-  main().catch(console.error);
+//   main().catch(console.error);
