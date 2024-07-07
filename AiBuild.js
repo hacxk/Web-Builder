@@ -10,12 +10,13 @@ const diff = require('diff');
 const babelParser = require('@babel/parser');
 const babelTraverse = require('@babel/traverse').default;
 const babelGenerate = require('@babel/generator').default;
-const typescript = require('typescript');
+
 const pythonParser = require('tree-sitter-python');
 const Parser = require('tree-sitter');
 
 const util = require('util');
 const execPromise = util.promisify(exec);
+const { main } = require('./Website')
 const {
   analyzeDependencies,
   checkCodeQuality,
@@ -1295,6 +1296,10 @@ This will allow me to automatically create the files or folders based on your su
       continue;
     }
 
+    if (userInput.toLowerCase() === '::website') {
+      await main()
+      continue;
+    }
     if (userInput.toLowerCase() === '::ultraadvancedwebgenerator') {
       const filePath = userInput.split(' ')[1];
       if (!filePath) {
@@ -1322,6 +1327,7 @@ This will allow me to automatically create the files or folders based on your su
     if (userInput.toLowerCase() === 'help') {
       console.log(chalk.cyan('Available commands:'));
       console.log(chalk.cyan('- ask <content>: Perform a result from AI'));
+      console.log(chalk.cyan('- ::main: Generate a Standard PHP Website (beta)'));
       console.log(chalk.cyan('- ::active <filepath>: Perform a Real-Time Coding Session With Ai'));
       console.log(chalk.cyan('- ::upgrade: Upgrade and improve all functions in this script'));
       console.log(chalk.cyan('- ::active=UltraAdvancedWebGenerator: Create a full test on a build in website'));
